@@ -21,7 +21,7 @@ class Worker(QThread):
         
     def run(self):
         try:
-            script_path = Path("JLC2KiCad_Lib/JLC2KiCadLib/JLC2KiCadLib.py").absolute()
+            script_path = Path("lcsc2kicad-GUI/JLC2KiCadLib/JLC2KiCadLib.py")
             self.progress.emit(f"Script path: {script_path}")
             if not script_path.exists():
                 self.progress.emit(f"Error: Script not found at {script_path}")
