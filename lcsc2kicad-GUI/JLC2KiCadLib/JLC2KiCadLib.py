@@ -6,6 +6,12 @@ import json
 import logging
 import argparse
 
+# Import PDF downloader
+try:
+    from JLC2KiCadLib import pdf_downloader
+except ImportError:
+    import pdf_downloader
+
 __version__ = "1.0.0"
 
 # Update imports
@@ -50,6 +56,20 @@ def add_component(component_id, args):
     else:
         _, datasheet_link, _, _ = get_footprint_info(footprint_component_uuid)
         footprint_name = ""
+
+    # Download PDF if requested
+    if args.download_pdf:
+        pdf_success, pdf_path, pdf_error = pdf_downloader.download_pdf(
+            component_id, args.output_dir, args.pdf_dir
+        )
+        if pdf_success:
+            # Update datasheet link to point to local PDF
+            datasheet_link = pdf_downloader.update_datasheet_link(
+                datasheet_link, component_id, args.pdf_dir
+            )
+            logging.info(f"Updated datasheet link to local PDF: {datasheet_link}")
+        else:
+            logging.warning(f"PDF download failed for {component_id}: {pdf_error}")
 
     if args.symbol_creation:
         create_symbol(
@@ -174,6 +194,21 @@ def main():
         dest="log_file",
         action="store_true",
         help="Use --log_file if you want logs to be written in a file",
+    )
+
+    parser.add_argument(
+        "--download_pdf",
+        dest="download_pdf",
+        action="store_true",
+        help="Download PDF datasheets from LCSC and update symbol links",
+    )
+
+    parser.add_argument(
+        "-pdf_dir",
+        dest="pdf_dir",
+        type=str,
+        default="pdf",
+        help='Set directory for storing PDF datasheets, default is "pdf" (relative to OUTPUT_DIR)',
     )
 
     parser.add_argument(

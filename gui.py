@@ -1,6 +1,7 @@
 import sys
 import json
 import subprocess
+import os
 from pathlib import Path
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLineEdit, QPushButton, QTextEdit, 
@@ -12,12 +13,13 @@ class Worker(QThread):
     finished = Signal()
     progress = Signal(str)
     
-    def __init__(self, part_numbers, output_dir, symbol_lib, include_models):
+    def __init__(self, part_numbers, output_dir, symbol_lib, include_models, download_pdf):
         super().__init__()
         self.part_numbers = part_numbers
         self.output_dir = output_dir
         self.symbol_lib = symbol_lib
         self.include_models = include_models
+        self.download_pdf = download_pdf
         
     def run(self):
         try:
@@ -34,6 +36,9 @@ class Worker(QThread):
             
             if self.include_models:
                 cmd.extend(["-models", "STEP"])
+            
+            if self.download_pdf:
+                cmd.extend(["--download_pdf"])
             
             process = subprocess.Popen(
                 cmd,
@@ -137,13 +142,21 @@ class MainWindow(QMainWindow):
         self.symbol_input = QLineEdit()
         self.symbol_input.setPlaceholderText("Symbol library name (default: components)")
         self.symbol_input.setText("components")
+        self.symbol_input.textChanged.connect(self.save_cache)
         symbol_layout.addWidget(self.symbol_input)
         layout.addLayout(symbol_layout)
         
         # Include 3D models checkbox
         self.models_check = QCheckBox("Include 3D models (STEP)")
         self.models_check.setChecked(True)
+        self.models_check.toggled.connect(self.save_cache)
         layout.addWidget(self.models_check)
+        
+        # Download PDF datasheets checkbox
+        self.pdf_check = QCheckBox("Download PDF datasheets")
+        self.pdf_check.setChecked(False)
+        self.pdf_check.toggled.connect(self.save_cache)
+        layout.addWidget(self.pdf_check)
         
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -159,6 +172,9 @@ class MainWindow(QMainWindow):
         self.convert_button = QPushButton("Convert")
         self.convert_button.clicked.connect(self.start_conversion)
         layout.addWidget(self.convert_button)
+        
+        # Load cached settings
+        self.load_cache()
     
     def normalize_part_number(self, part):
         """Normalize part number to include 'C' prefix if missing."""
@@ -283,6 +299,7 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if directory:
             self.dir_input.setText(directory)
+            self.save_cache()
             
     def log_message(self, message):
         """Add a message to the log output."""
@@ -313,8 +330,12 @@ class MainWindow(QMainWindow):
             part_numbers,
             output_dir,
             self.symbol_input.text(),
-            self.models_check.isChecked()
+            self.models_check.isChecked(),
+            self.pdf_check.isChecked()
         )
+        # Save cache before starting conversion
+        self.save_cache()
+        
         self.worker.progress.connect(self.log_message)
         self.worker.finished.connect(self.conversion_finished)
         self.worker.start()
@@ -325,6 +346,56 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 1)
         self.progress_bar.setValue(1)
         self.log_message("Conversion completed")
+        
+    def get_cache_file_path(self):
+        """Get the path to the cache file."""
+        return Path.home() / ".lcsc2kicad_cache.json"
+        
+    def load_cache(self):
+        """Load cached settings from file."""
+        cache_file = self.get_cache_file_path()
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r') as f:
+                    cache_data = json.load(f)
+                
+                # Load output directory
+                if 'output_directory' in cache_data:
+                    self.dir_input.setText(cache_data['output_directory'])
+                    self.log_message(f"Loaded cached output directory: {cache_data['output_directory']}")
+                    
+                # Load symbol library name
+                if 'symbol_library' in cache_data:
+                    self.symbol_input.setText(cache_data['symbol_library'])
+                    
+                # Load checkbox states
+                if 'include_models' in cache_data:
+                    self.models_check.setChecked(cache_data['include_models'])
+                    
+                if 'download_pdf' in cache_data:
+                    self.pdf_check.setChecked(cache_data['download_pdf'])
+                    
+            except Exception as e:
+                self.log_message(f"Error loading cache: {str(e)}")
+                
+    def save_cache(self):
+        """Save current settings to cache file."""
+        try:
+            cache_data = {
+                'output_directory': self.dir_input.text(),
+                'symbol_library': self.symbol_input.text(),
+                'include_models': self.models_check.isChecked(),
+                'download_pdf': self.pdf_check.isChecked()
+            }
+            
+            cache_file = self.get_cache_file_path()
+            with open(cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+                
+            self.log_message(f"Settings cached to {cache_file}")
+            
+        except Exception as e:
+            self.log_message(f"Error saving cache: {str(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
