@@ -1,0 +1,1 @@
+nix-shell -p python313Packages.requests python313Packages.lxml python313Packages.pillow python313Packages.svg-py python313Packages.semantic-version python313Packages.kicad python313Packages.pyside6 --run "source venv/bin/activate && python gui.py"

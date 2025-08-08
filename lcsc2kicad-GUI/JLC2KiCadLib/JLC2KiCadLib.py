@@ -1,5 +1,5 @@
 import sys
-sys.path.append('.')  # Add current directory to path
+sys.path.append('.')
 
 import requests
 import json
@@ -9,8 +9,10 @@ import argparse
 # Import PDF downloader
 try:
     from JLC2KiCadLib import pdf_downloader
+    from JLC2KiCadLib import component_info
 except ImportError:
     import pdf_downloader
+    import component_info
 
 __version__ = "1.0.0"
 
@@ -41,6 +43,10 @@ def add_component(component_id, args):
 
     footprint_component_uuid = data["result"][-1]["component_uuid"]
     symbol_component_uuid = [i["component_uuid"] for i in data["result"][:-1]]
+
+    # Extract component information from LCSC
+    logging.info(f"Extracting component information for {component_id}")
+    component_info_data = component_info.extract_component_info(component_id)
 
     if args.footprint_creation:
         footprint_name, datasheet_link = create_footprint(
@@ -83,6 +89,7 @@ def add_component(component_id, args):
             output_dir=args.output_dir,
             component_id=component_id,
             skip_existing=args.skip_existing,
+            component_info_data=component_info_data,
         )
 
 

@@ -31,6 +31,7 @@ def create_symbol(
     output_dir,
     component_id,
     skip_existing,
+    component_info_data=None,
 ):
     class kicad_symbol:
         drawing = ""
@@ -114,6 +115,24 @@ def create_symbol(
                 )
         kicad_symbol.drawing += """\n    )"""
 
+    # Create component properties from LCSC data
+    component_properties = ""
+    if component_info_data:
+        try:
+            from JLC2KiCadLib import component_info
+            component_properties = component_info.create_component_properties(component_info_data)
+        except ImportError:
+            import component_info
+            component_properties = component_info.create_component_properties(component_info_data)
+    
+    # Add description property if available
+    description_property = ""
+    if component_info_data and component_info_data.get('description'):
+        description_property = f"""
+    (property "Description" "{component_info_data['description']}" (id 6) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )"""
+    
     template_lib_component = f"""\
   (symbol "{ComponentName}" {kicad_symbol.pinNamesHide} {kicad_symbol.pinNumbersHide} (in_bom yes) (on_board yes)
     (property "Reference" "{symmbolic_prefix}" (id 0) (at 0 1.27 0)
@@ -133,8 +152,8 @@ def create_symbol(
     )
     (property "LCSC" "{component_id}" (id 5) (at 0 0 0)
       (effects (font (size 1.27 1.27)) hide)
-    )
-    {get_type_values_properties(6, component_types_values)}{kicad_symbol.drawing}
+    ){description_property}
+    {get_type_values_properties(7 if description_property else 6, component_types_values)}{component_properties}{kicad_symbol.drawing}
   )
 """
 
