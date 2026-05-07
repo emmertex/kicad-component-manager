@@ -1,15 +1,12 @@
 import logging
 import re
+from helper import mil2mm
 
 RELATIVE_OFFSET = 0.254
 ABSOLUTE_OFFSET_X = 101.6
 ABSOLUTE_OFFSET_Y = -63.5
 
 __all__ = ["handlers", "h_R", "h_E", "h_P", "h_T", "h_PL", "h_PG", "h_PT", "h_A"]
-
-
-def mil2mm(data):
-    return float(data) / 3.937
 
 
 def h_R(data, translation, kicad_symbol):

@@ -5,9 +5,10 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import requests
+import helper
 
 
 def _fetch_external_pdf(url, referer, timeout=60):
@@ -98,9 +99,6 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
         # Create PDF directory if it doesn't exist
         pdf_path = Path(output_dir) / pdf_dir
         pdf_path.mkdir(parents=True, exist_ok=True)
-
-        # Get shared session with LCSC cookies
-        import helper
 
         session = helper.get_lcsc_session()
 

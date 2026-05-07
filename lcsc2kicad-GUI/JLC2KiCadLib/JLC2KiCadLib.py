@@ -1,31 +1,16 @@
 import sys
-
-sys.path.append(".")
-
 import argparse
 import json
 import logging
 
 import requests
+import component_info
+import pdf_downloader
+import helper
+from footprint.footprint import create_footprint, get_footprint_info
+from symbol.symbol import create_symbol
 
-# Import PDF downloader
-try:
-    from JLC2KiCadLib import component_info, pdf_downloader
-except ImportError:
-    import component_info
-    import pdf_downloader
-
-__version__ = "1.0.0"
-
-# Update imports
-try:
-    from JLC2KiCadLib import helper
-    from JLC2KiCadLib.footprint.footprint import create_footprint, get_footprint_info
-    from JLC2KiCadLib.symbol.symbol import create_symbol
-except ImportError:
-    import helper
-    from footprint.footprint import create_footprint, get_footprint_info
-    from symbol.symbol import create_symbol
+__version__ = "1.0.32"
 
 
 def add_component(component_id, args):
@@ -240,7 +225,7 @@ def main():
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
-        help="Print versin number and exit",
+        help="Print version number and exit",
     )
 
     args = parser.parse_args()

@@ -5,6 +5,7 @@ import re
 
 from KicadModTree import *
 from .model3d import get_WrlModel, get_StepModel
+from helper import mil2mm
 
 __all__ = [
     "handlers",
@@ -36,10 +37,6 @@ layer_correspondance = {
     "100": "F.SilkS",
     "101": "F.SilkS",
 }
-
-
-def mil2mm(data):
-    return float(data) / 3.937
 
 
 def h_TRACK(data, kicad_mod, footprint_info):

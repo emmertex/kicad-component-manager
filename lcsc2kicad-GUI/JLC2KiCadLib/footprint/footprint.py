@@ -4,11 +4,8 @@ import os
 
 import requests
 from KicadModTree import *
-
-try:
-    from .footprint_handlers import handlers, mil2mm
-except ImportError:
-    from footprint_handlers import handlers, mil2mm
+import helper
+from .footprint_handlers import handlers, mil2mm
 
 
 def create_footprint(
@@ -159,9 +156,6 @@ def create_footprint(
 
 
 def get_footprint_info(footprint_component_uuid):
-    # fetch the component data from easyeda library
-    import helper
-
     session = helper.get_easyeda_session()
     response = session.get(
         f"https://easyeda.com/api/components/{footprint_component_uuid}",
@@ -181,7 +175,7 @@ def get_footprint_info(footprint_component_uuid):
     y = data["result"]["dataStr"]["head"]["y"]
     try:
         datasheet_link = data["result"]["dataStr"]["head"]["c_para"]["link"]
-    except:
+    except (KeyError, TypeError):
         datasheet_link = ""
         logging.warning("Could not retrieve datasheet link from EASYEDA")
 

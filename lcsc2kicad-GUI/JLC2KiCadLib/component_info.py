@@ -1,9 +1,7 @@
-import requests
 import re
 import logging
-import json
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+import helper
 
 
 def extract_component_info(component_id):
@@ -17,19 +15,10 @@ def extract_component_info(component_id):
         dict: Dictionary containing component information
     """
     try:
-        # Fetch the product page
         product_url = f"https://www.lcsc.com/product-detail/{component_id}.html"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-        }
-        
         logging.info(f"Fetching component information from {product_url}")
-        response = requests.get(product_url, headers=headers, timeout=30)
+        session = helper.get_lcsc_session()
+        response = session.get(product_url, headers=helper.LCSC_HEADERS, timeout=30)
         
         if response.status_code != 200:
             logging.warning(f"Failed to fetch component info. HTTP status: {response.status_code}")

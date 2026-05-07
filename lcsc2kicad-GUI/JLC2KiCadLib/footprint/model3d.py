@@ -4,15 +4,13 @@ import re
 
 import requests
 from KicadModTree import *
+import helper
+from helper import mil2mm
 
 wrl_header = """#VRML V2.0 utf8
 #created by JLC2KiCad_lib using the JLCPCB library
 #for more info see https://github.com/TousstNicolas/JLC2KICAD_lib
 """
-
-
-def mil2mm(data):
-    return float(data) / 3.937
 
 
 def get_StepModel(
@@ -29,8 +27,6 @@ def get_StepModel(
     # `qAxj6KHrDKw4blvCG8QJPs7Y` is a constant in
     # https://modules.lceda.cn/smt-gl-engine/0.8.22.6032922c/smt-gl-engine.js
     # and points to the bucket containing the step files.
-
-    import helper
 
     session = helper.get_easyeda_session()
     response = session.get(
@@ -81,8 +77,6 @@ def get_WrlModel(
     rotation,
 ):
     logging.info("Creating WRL model ...")
-
-    import helper
 
     session = helper.get_easyeda_session()
     response = session.get(
@@ -219,7 +213,7 @@ Shape{{
                 rotate=[-float(axis_rotation) for axis_rotation in rotation.split(",")],
             )
         )
-        logging.info(f"added {path_name} to footprintc")
+        logging.info(f"added {path_name} to footprint")
 
 
 def ensure_footprint_lib_directories_exist(footprint_info):

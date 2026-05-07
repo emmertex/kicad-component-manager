@@ -4,12 +4,9 @@ import os
 import re
 
 import requests
-from KicadModTree import *
-
-try:
-    from .symbol_handlers import handlers
-except ImportError:
-    from symbol_handlers import handlers
+import helper
+import component_info
+from .symbol_handlers import handlers
 
 
 template_lib_header = f"""\
@@ -45,8 +42,6 @@ def create_symbol(
     kicad_symbol = kicad_symbol()
 
     ComponentName = ""
-    import helper
-
     session = helper.get_easyeda_session()
     for component_uuid in symbol_component_uuid:
         response = session.get(
@@ -128,18 +123,9 @@ def create_symbol(
     # Create component properties from LCSC data
     component_properties = ""
     if component_info_data:
-        try:
-            from JLC2KiCadLib import component_info
-
-            component_properties = component_info.create_component_properties(
-                component_info_data
-            )
-        except ImportError:
-            import component_info
-
-            component_properties = component_info.create_component_properties(
-                component_info_data
-            )
+        component_properties = component_info.create_component_properties(
+            component_info_data
+        )
 
     # Add description property if available
     description_property = ""
