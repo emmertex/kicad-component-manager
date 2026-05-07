@@ -1,0 +1,8 @@
+requests
+lxml
+pillow
+svg2mod
+semantic-version
+KicadModTree
+PySide6
+bs4

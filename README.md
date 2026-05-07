@@ -1,8 +1,9 @@
 # LCSC to KiCad Library Converter GUI
 
-A graphical user interface for converting LCSC/JLCPCB component libraries to KiCad format. This project builds upon and combines two excellent projects:
+A graphical user interface for converting LCSC/JLCPCB component libraries to KiCad format. This project builds upon and combines these excellent projects.
 - [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) by TousstNicolas
 - [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti
+- [lcsc2kicad-GUI](https://github.com/milutintech/lcsc2kicad-GUI) by milutintech
 
 ## Features
 
@@ -17,27 +18,40 @@ A graphical user interface for converting LCSC/JLCPCB component libraries to KiC
   - Symbols (.kicad_sym)
   - Footprints (.pretty)
   - 3D Models (STEP format)
+  - Locally stored PDF datasheets
 - Progress tracking and error logging
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/YourUsername/lcsc2kicad-gui
-cd lcsc2kicad-gui
-```
-
-2. Install dependencies:
-```bash
-pip install requests lxml pillow svg2mod semantic-version KicadModTree PySide6
+git clone https://github.com/emmertex/lcsc2kicad-GUI
+cd lcsc2kicad-GUI
 ```
 
 ## Usage
 
-### Starting the GUI
+### Automatically Run  (Linux, Mac and WSL)
 
-Run the GUI application:
 ```bash
+./run.sh
+```
+This script does the following.  
+
+- Looks for python venv.
+   - If not present, creates venv and installs dependencies.
+   - If venv is present, updates dependencies.
+- Starts the GUI.
+
+
+### Manually Run  
+
+If you wish to run manually, or use Windows without WSL, use the following commands.
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 python gui.py
 ```
 
@@ -95,6 +109,9 @@ output_directory/
 
 3. 3D Models:
    - Automatically linked if directory structure is maintained
+
+4. PDF Datasheets:
+   - Automatically links to the downloaded PDF datasheets.
 
 ## Credits
 

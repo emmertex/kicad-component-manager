@@ -1,18 +1,19 @@
 import sys
-sys.path.append('.')
 
-import requests
+sys.path.append(".")
+
+import argparse
 import json
 import logging
-import argparse
+
+import requests
 
 # Import PDF downloader
 try:
-    from JLC2KiCadLib import pdf_downloader
-    from JLC2KiCadLib import component_info
+    from JLC2KiCadLib import component_info, pdf_downloader
 except ImportError:
-    import pdf_downloader
     import component_info
+    import pdf_downloader
 
 __version__ = "1.0.0"
 
@@ -29,11 +30,28 @@ except ImportError:
 
 def add_component(component_id, args):
     logging.info(f"creating library for component {component_id}")
-    data = json.loads(
-        requests.get(
-            f"https://easyeda.com/api/products/{component_id}/svgs"
-        ).content.decode()
-    )
+    url = f"https://easyeda.com/api/products/{component_id}/svgs"
+    session = helper.get_easyeda_session()
+    response = session.get(url, headers=helper.EASYEDA_HEADERS)
+
+    if response.status_code != 200:
+        logging.error(
+            f"Failed to fetch SVG data from EasyEDA API. HTTP status code: {response.status_code}\n"
+            f"URL: {url}\n"
+            f"Response: {response.text[:500]}"
+        )
+        return ()
+
+    try:
+        data = json.loads(response.content.decode())
+    except json.JSONDecodeError as e:
+        logging.error(
+            f"Failed to parse JSON response from EasyEDA API.\n"
+            f"URL: {url}\n"
+            f"Response: {response.text[:500]}\n"
+            f"JSON decode error: {e}"
+        )
+        return ()
 
     if not data["success"]:
         logging.error(

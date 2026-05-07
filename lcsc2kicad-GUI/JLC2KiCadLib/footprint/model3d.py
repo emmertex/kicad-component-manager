@@ -1,7 +1,8 @@
-import requests
 import logging
 import os
 import re
+
+import requests
 from KicadModTree import *
 
 wrl_header = """#VRML V2.0 utf8
@@ -29,8 +30,12 @@ def get_StepModel(
     # https://modules.lceda.cn/smt-gl-engine/0.8.22.6032922c/smt-gl-engine.js
     # and points to the bucket containing the step files.
 
-    response = requests.get(
-        f"https://modules.easyeda.com/qAxj6KHrDKw4blvCG8QJPs7Y/{component_uuid}"
+    import helper
+
+    session = helper.get_easyeda_session()
+    response = session.get(
+        f"https://modules.easyeda.com/qAxj6KHrDKw4blvCG8QJPs7Y/{component_uuid}",
+        headers=helper.EASYEDA_HEADERS,
     )
 
     if not response.status_code == requests.codes.ok:
@@ -77,8 +82,12 @@ def get_WrlModel(
 ):
     logging.info("Creating WRL model ...")
 
-    response = requests.get(
-        f"https://easyeda.com/analyzer/api/3dmodel/{component_uuid}"
+    import helper
+
+    session = helper.get_easyeda_session()
+    response = session.get(
+        f"https://easyeda.com/analyzer/api/3dmodel/{component_uuid}",
+        headers=helper.EASYEDA_HEADERS,
     )
     if response.status_code == requests.codes.ok:
         text = response.content.decode()
@@ -150,16 +159,16 @@ def get_WrlModel(
         shape_str = f"""
 Shape{{
 	appearance Appearance {{
-		material  Material 	{{ 
-			diffuseColor {' '.join(material['diffuseColor'])} 
-			specularColor {' '.join(material['specularColor'])}
+		material  Material 	{{
+			diffuseColor {" ".join(material["diffuseColor"])}
+			specularColor {" ".join(material["specularColor"])}
 			ambientIntensity 0.2
-			transparency {material['transparency']}
+			transparency {material["transparency"]}
 			shininess 0.5
 		}}
 	}}
 	geometry IndexedFaceSet {{
-		ccw TRUE 
+		ccw TRUE
 		solid FALSE
 		coord DEF co Coordinate {{
 			point [

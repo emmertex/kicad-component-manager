@@ -137,8 +137,10 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-#VSCode
+# Coding and AI tools
 .vscode
+.cursor
+.claude
 
 # generated library files
 export/

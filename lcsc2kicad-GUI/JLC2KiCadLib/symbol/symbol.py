@@ -1,11 +1,15 @@
-import requests
 import json
-import re
-import os
 import logging
+import os
+import re
 
+import requests
 from KicadModTree import *
-from .symbol_handlers import *
+
+try:
+    from .symbol_handlers import handlers
+except ImportError:
+    from symbol_handlers import handlers
 
 
 template_lib_header = f"""\
@@ -41,8 +45,14 @@ def create_symbol(
     kicad_symbol = kicad_symbol()
 
     ComponentName = ""
+    import helper
+
+    session = helper.get_easyeda_session()
     for component_uuid in symbol_component_uuid:
-        response = requests.get(f"https://easyeda.com/api/components/{component_uuid}")
+        response = session.get(
+            f"https://easyeda.com/api/components/{component_uuid}",
+            headers=helper.EASYEDA_HEADERS,
+        )
         if response.status_code == requests.codes.ok:
             data = json.loads(response.content.decode())
         else:
@@ -120,19 +130,25 @@ def create_symbol(
     if component_info_data:
         try:
             from JLC2KiCadLib import component_info
-            component_properties = component_info.create_component_properties(component_info_data)
+
+            component_properties = component_info.create_component_properties(
+                component_info_data
+            )
         except ImportError:
             import component_info
-            component_properties = component_info.create_component_properties(component_info_data)
-    
+
+            component_properties = component_info.create_component_properties(
+                component_info_data
+            )
+
     # Add description property if available
     description_property = ""
-    if component_info_data and component_info_data.get('description'):
+    if component_info_data and component_info_data.get("description"):
         description_property = f"""
-    (property "Description" "{component_info_data['description']}" (id 6) (at 0 0 0)
+    (property "Description" "{component_info_data["description"]}" (id 6) (at 0 0 0)
       (effects (font (size 1.27 1.27)) hide)
     )"""
-    
+
     template_lib_component = f"""\
   (symbol "{ComponentName}" {kicad_symbol.pinNamesHide} {kicad_symbol.pinNumbersHide} (in_bom yes) (on_board yes)
     (property "Reference" "{symmbolic_prefix}" (id 0) (at 0 1.27 0)

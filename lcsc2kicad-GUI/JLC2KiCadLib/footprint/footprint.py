@@ -1,10 +1,14 @@
-import requests
 import json
 import logging
 import os
 
+import requests
 from KicadModTree import *
-from .footprint_handlers import *
+
+try:
+    from .footprint_handlers import handlers, mil2mm
+except ImportError:
+    from footprint_handlers import handlers, mil2mm
 
 
 def create_footprint(
@@ -33,9 +37,7 @@ def create_footprint(
 
     if skip_existing:
         # check if footprint already exists:
-        if os.path.isfile(
-            os.path.join(pretty_dir, footprint_name + ".kicad_mod")
-        ):
+        if os.path.isfile(os.path.join(pretty_dir, footprint_name + ".kicad_mod")):
             logging.info(f"Footprint {footprint_name} already exists, skipping.")
             return f"{footprint_lib}:{footprint_name}", datasheet_link
 
@@ -158,8 +160,12 @@ def create_footprint(
 
 def get_footprint_info(footprint_component_uuid):
     # fetch the component data from easyeda library
-    response = requests.get(
-        f"https://easyeda.com/api/components/{footprint_component_uuid}"
+    import helper
+
+    session = helper.get_easyeda_session()
+    response = session.get(
+        f"https://easyeda.com/api/components/{footprint_component_uuid}",
+        headers=helper.EASYEDA_HEADERS,
     )
 
     if response.status_code == requests.codes.ok:
