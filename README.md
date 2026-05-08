@@ -2,6 +2,8 @@
 
 A GUI for downloading LCSC/JLCPCB components and adding them directly to your KiCad symbol, footprint, and 3D model libraries.
 
+![LCSC to KiCad Converter](images/Screenshot_20260508_100352.png)
+
 ---
 
 ## Features
