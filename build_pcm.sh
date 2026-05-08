@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-1.0.2}"
+VERSION="${1:-1.0.3}"
 REPO="$(cd "$(dirname "$0")" && pwd)"
 OUT="$REPO/lcsc2kicad-$VERSION.zip"
 STAGING="$(mktemp -d)"
@@ -65,11 +65,14 @@ with zipfile.ZipFile('$OUT', 'w', zipfile.ZIP_DEFLATED) as zf:
 fi
 rm -rf "$STAGING"
 
+SIZE=$(stat -c %s "$OUT")
+HASH=$(sha256sum "$OUT" | awk '{print $1}')
+
 echo ""
 echo "Package written to: $OUT"
 echo ""
 echo "To install in KiCad:"
 echo "  Plugin and Content Manager → Install from File → $OUT"
 echo ""
-echo "On first launch KiCad will offer to install Python dependencies automatically."
-echo "If PySide6 is already available system-wide the GUI launches immediately."
+echo "Size of package: $SIZE bytes"
+echo "Hash of package: $HASH"
