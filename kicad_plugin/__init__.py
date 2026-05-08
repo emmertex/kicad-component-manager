@@ -6,7 +6,6 @@ Supports two installation layouts:
   Repo-symlink (install_plugin.sh):
     scripting/plugins/lcsc2kicad/  →  kicad_plugin/
     gui2.py lives one level up at the repo root.
-    Dependencies are expected in that repo's venv/.
 
   PCM self-contained (build_pcm.sh / KiCad "Install from File"):
     3rdparty/plugins/com_emmertex_lcsc2kicad/
@@ -16,17 +15,22 @@ Supports two installation layouts:
 Note on toolbar placement: pcbnew.ActionPlugin toolbar buttons only appear
 in the PCB editor — this is a KiCad API limitation.  The plugin is
 accessible from the schematic editor via Tools → External Plugins (menu).
+
+Debug log: ~/.lcsc2kicad_plugin.log
 """
 
 import shutil
 import subprocess
 import sys
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 import pcbnew
 
 _PLUGIN_DIR = Path(__file__).parent.resolve()
-_ICON = _PLUGIN_DIR / "icon.png"
+_ICON       = _PLUGIN_DIR / "icon.png"
+_LOG_FILE   = Path.home() / ".lcsc2kicad_plugin.log"
 
 _GUI_CANDIDATES = [
     _PLUGIN_DIR / "gui2.py",           # PCM self-contained install
@@ -34,60 +38,50 @@ _GUI_CANDIDATES = [
 ]
 
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+def _log(msg: str):
+    try:
+        with open(_LOG_FILE, "a") as f:
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}\n")
+    except Exception:
+        pass
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _find_gui():
     for p in _GUI_CANDIDATES:
+        _log(f"gui candidate: {p} — {'found' if p.exists() else 'not found'}")
         if p.exists():
             return p
     return None
 
 
-def _check_pyside6(python: str) -> bool:
-    """Return True if this interpreter can import PySide6."""
-    try:
-        r = subprocess.run(
-            [python, "-c", "import PySide6"],
-            capture_output=True, timeout=15,
-        )
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
-def _find_python(gui: Path) -> str | None:
+def _find_python(gui: Path) -> str:
     """
-    Return a Python interpreter path that has PySide6, or None if not found.
-    Preference order:
-      1. venv next to gui2.py  (PCM mode, after first-run setup)
-      2. venv one level up     (repo symlink mode)
-      3. system python3 from PATH
-      4. KiCad's own interpreter (last resort)
+    Return a Python interpreter path. Checks venvs by file existence only
+    (no subprocess calls), then falls back to system python3 / sys.executable.
     """
     candidates = [
         gui.parent / "venv" / "bin" / "python",
         gui.parent.parent / "venv" / "bin" / "python",
     ]
     for p in candidates:
-        if p.exists() and _check_pyside6(str(p)):
+        _log(f"python candidate: {p} — {'found' if p.exists() else 'not found'}")
+        if p.exists():
             return str(p)
 
-    for name in ("python3", "python"):
-        found = shutil.which(name)
-        if found and _check_pyside6(found):
-            return found
+    sys_py = shutil.which("python3")
+    _log(f"shutil.which('python3') = {sys_py}")
+    if sys_py:
+        return sys_py
 
-    if _check_pyside6(sys.executable):
-        return sys.executable
-
-    return None
+    _log(f"falling back to sys.executable = {sys.executable}")
+    return sys.executable
 
 
 def _create_venv(venv_dir: Path, requirements: Path) -> tuple[bool, str]:
-    """
-    Create a venv and install requirements.txt into it.
-    Returns (success, error_message).
-    """
     try:
         r = subprocess.run(
             [sys.executable, "-m", "venv", str(venv_dir)],
@@ -95,22 +89,16 @@ def _create_venv(venv_dir: Path, requirements: Path) -> tuple[bool, str]:
         )
         if r.returncode != 0:
             return False, r.stderr.decode(errors="replace")
-
         pip = venv_dir / "bin" / "pip"
-        r = subprocess.run(
-            [str(pip), "install", "--upgrade", "pip", "--quiet"],
-            capture_output=True, timeout=120,
-        )
+        subprocess.run([str(pip), "install", "--upgrade", "pip", "--quiet"],
+                       capture_output=True, timeout=120)
         r = subprocess.run(
             [str(pip), "install", "-r", str(requirements), "--quiet"],
             capture_output=True, timeout=600,
         )
         if r.returncode != 0:
             return False, r.stderr.decode(errors="replace")
-
         return True, ""
-    except subprocess.TimeoutExpired:
-        return False, "Timed out during installation."
     except Exception as e:
         return False, str(e)
 
@@ -129,43 +117,78 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
             self.icon_file_name = str(_ICON)
 
     def Run(self):
-        import wx  # always available inside KiCad
+        _log("=" * 60)
+        _log("Run() called")
+        _log(f"sys.executable = {sys.executable}")
+        _log(f"sys.version    = {sys.version}")
+        _log(f"_PLUGIN_DIR    = {_PLUGIN_DIR}")
+
+        try:
+            self._run()
+        except Exception:
+            tb = traceback.format_exc()
+            _log(f"UNHANDLED EXCEPTION in Run():\n{tb}")
+            try:
+                import wx
+                wx.MessageBox(
+                    f"LCSC to KiCad plugin error:\n\n{tb}",
+                    "LCSC to KiCad — Error",
+                    wx.OK | wx.ICON_ERROR,
+                )
+            except Exception as wx_err:
+                _log(f"wx.MessageBox also failed: {wx_err}")
+
+    def _run(self):
+        import wx
 
         # ── Locate gui2.py ────────────────────────────────────────────────────
         gui = _find_gui()
         if gui is None:
-            wx.MessageBox(
+            msg = (
                 "gui2.py not found.\n\nExpected locations:\n" +
-                "\n".join(f"  {p}" for p in _GUI_CANDIDATES) +
-                "\n\nSee the README for installation instructions.",
-                "LCSC to KiCad — Launch Error",
-                wx.OK | wx.ICON_ERROR,
+                "\n".join(f"  {p}" for p in _GUI_CANDIDATES)
             )
+            _log(msg)
+            wx.MessageBox(msg, "LCSC to KiCad — Launch Error", wx.OK | wx.ICON_ERROR)
             return
 
-        # ── Find a Python with PySide6 ────────────────────────────────────────
+        _log(f"Using gui: {gui}")
         python = _find_python(gui)
+        _log(f"Using python: {python}")
 
-        if python is None:
-            # Offer to install dependencies into a local venv
+        # ── Check all required packages are importable ────────────────────────
+        _log("Testing required imports...")
+        try:
+            result = subprocess.run(
+                [python, "-c",
+                 "import PySide6, requests, lxml, bs4, KicadModTree; print('ok')"],
+                capture_output=True, timeout=15,
+            )
+            _log(f"deps test returncode={result.returncode} "
+                 f"stdout={result.stdout.decode().strip()} "
+                 f"stderr={result.stderr.decode().strip()}")
+            deps_ok = result.returncode == 0
+        except Exception as e:
+            _log(f"deps test exception: {e}")
+            deps_ok = False
+
+        if not deps_ok:
             requirements = gui.parent / "requirements.txt"
             if not requirements.exists():
-                wx.MessageBox(
-                    "PySide6 is not available and requirements.txt was not found.\n\n"
-                    "Please install PySide6 manually:\n  pip install PySide6\n\n"
-                    "Then restart KiCad.",
-                    "LCSC to KiCad — Missing Dependency",
-                    wx.OK | wx.ICON_ERROR,
+                msg = (
+                    f"PySide6 is not available with:\n  {python}\n\n"
+                    "Install it with:  pip install PySide6"
                 )
+                _log(msg)
+                wx.MessageBox(msg, "LCSC to KiCad — Missing Dependency",
+                              wx.OK | wx.ICON_ERROR)
                 return
 
             answer = wx.MessageBox(
-                "LCSC to KiCad Converter needs Python dependencies that are not\n"
-                "currently installed (PySide6, requests, lxml, etc.).\n\n"
-                "A virtual environment will be created at:\n"
-                f"  {gui.parent / 'venv'}\n\n"
-                "This is a one-time setup that may take a minute or two.\n\n"
-                "Install now?",
+                "LCSC to KiCad Converter needs Python dependencies that are\n"
+                "not currently installed (PySide6, requests, lxml, etc.).\n\n"
+                f"A virtual environment will be created at:\n  {gui.parent / 'venv'}\n\n"
+                "This is a one-time setup (~1–2 minutes).\n\nInstall now?",
                 "LCSC to KiCad — First-time Setup",
                 wx.YES_NO | wx.ICON_QUESTION,
             )
@@ -173,43 +196,37 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
                 return
 
             venv_dir = gui.parent / "venv"
-            busy = wx.BusyInfo(
-                "Installing dependencies — please wait…\n"
-                "(This window will close when done.)"
-            )
+            _log(f"Creating venv at {venv_dir}")
+            busy = wx.BusyInfo("Installing dependencies — please wait…")
             ok, err = _create_venv(venv_dir, requirements)
             del busy
+            _log(f"Venv creation: ok={ok} err={err}")
 
             if not ok:
                 wx.MessageBox(
-                    f"Dependency installation failed:\n\n{err}\n\n"
-                    "You can install manually:\n"
-                    f"  python3 -m venv {venv_dir}\n"
-                    f"  {venv_dir}/bin/pip install -r {requirements}",
+                    f"Dependency installation failed:\n\n{err}",
                     "LCSC to KiCad — Setup Failed",
                     wx.OK | wx.ICON_ERROR,
                 )
                 return
 
-            python = _find_python(gui)
-            if python is None:
-                wx.MessageBox(
-                    "Setup appeared to succeed but PySide6 still cannot be\n"
-                    "imported. Please check the installation manually.",
-                    "LCSC to KiCad — Setup Error",
-                    wx.OK | wx.ICON_ERROR,
-                )
-                return
+            python = str(venv_dir / "bin" / "python")
 
         # ── Launch gui2.py ────────────────────────────────────────────────────
+        _log(f"Launching: {python} {gui}")
+        gui_log = _LOG_FILE.parent / ".lcsc2kicad_gui.log"
         try:
-            subprocess.Popen(
-                [python, str(gui)],
-                cwd=str(gui.parent),
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-            )
+            with open(gui_log, "a") as gui_stderr:
+                proc = subprocess.Popen(
+                    [python, str(gui)],
+                    cwd=str(gui.parent),
+                    stdout=gui_stderr,
+                    stderr=gui_stderr,
+                    start_new_session=True,
+                )
+            _log(f"Popen succeeded, pid={proc.pid}  (gui stderr → {gui_log})")
         except Exception as e:
+            _log(f"Popen failed: {e}")
             wx.MessageBox(
                 f"Failed to launch LCSC to KiCad Converter.\n\n"
                 f"Python:  {python}\n"
@@ -220,4 +237,6 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
             )
 
 
+_log(f"Plugin module loading from {_PLUGIN_DIR}")
 LCSCtoKiCadAction().register()
+_log("Plugin registered OK")

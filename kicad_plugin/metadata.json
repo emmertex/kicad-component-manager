@@ -18,7 +18,7 @@
   },
   "versions": [
     {
-      "version": "1.0.3",
+      "version": "1.0.4",
       "platforms": ["windows", "linux", "macos"],
       "status": "stable",
       "kicad_version": "7.0"

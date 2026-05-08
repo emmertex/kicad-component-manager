@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-VERSION="${1:-1.0.3}"
 REPO="$(cd "$(dirname "$0")" && pwd)"
+_META_VERSION="$(python3 -c "import json; print(json.load(open('$REPO/kicad_plugin/metadata.json'))['versions'][0]['version'])")"
+VERSION="${1:-$_META_VERSION}"
 OUT="$REPO/lcsc2kicad-$VERSION.zip"
 STAGING="$(mktemp -d)"
 PLUGIN_STAGING="$STAGING/plugins"
