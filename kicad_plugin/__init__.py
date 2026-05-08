@@ -65,13 +65,21 @@ def _find_gui():
 def _find_python(gui: Path) -> str:
     """
     Return a Python interpreter path. Checks venvs by file existence only
-    (no subprocess calls), then falls back to system python3 / sys.executable.
-    On Windows venvs live under Scripts\python.exe; on Unix under bin/python.
+    (no subprocess calls).
+
+    On Windows, sys.executable is kicad.exe — not a Python interpreter.
+    KiCad ships python.exe alongside kicad.exe, so we check that explicitly
+    before falling back to anything on PATH.  The Windows Store stub
+    (WindowsApps\\python*.exe, exit 9009) is silently skipped.
     """
     candidates = [
         gui.parent / "venv" / _VBIN / _VPY,
         gui.parent.parent / "venv" / _VBIN / _VPY,
     ]
+    if _WIN:
+        # KiCad's own Python lives next to kicad.exe
+        candidates.append(Path(sys.executable).parent / _VPY)
+
     for p in candidates:
         _log(f"python candidate: {p} — {'found' if p.exists() else 'not found'}")
         if p.exists():
@@ -80,18 +88,19 @@ def _find_python(gui: Path) -> str:
     for name in ("python3", "python"):
         sys_py = shutil.which(name)
         _log(f"shutil.which({name!r}) = {sys_py}")
-        if sys_py:
+        if sys_py and "WindowsApps" not in (sys_py or ""):
             return sys_py
 
     _log(f"falling back to sys.executable = {sys.executable}")
     return sys.executable
 
 
-def _create_venv(venv_dir: Path, requirements: Path) -> tuple[bool, str]:
+def _create_venv(venv_dir: Path, requirements: Path, python: str = "") -> tuple[bool, str]:
     pip_name = "pip.exe" if _WIN else "pip"
+    bootstrap = python or sys.executable
     try:
         r = subprocess.run(
-            [sys.executable, "-m", "venv", str(venv_dir)],
+            [bootstrap, "-m", "venv", str(venv_dir)],
             capture_output=True, timeout=120,
         )
         if r.returncode != 0:
@@ -203,9 +212,9 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
                 return
 
             venv_dir = gui.parent / "venv"
-            _log(f"Creating venv at {venv_dir}")
+            _log(f"Creating venv at {venv_dir} using {python}")
             busy = wx.BusyInfo("Installing dependencies — please wait…")
-            ok, err = _create_venv(venv_dir, requirements)
+            ok, err = _create_venv(venv_dir, requirements, python=python)
             del busy
             _log(f"Venv creation: ok={ok} err={err}")
 

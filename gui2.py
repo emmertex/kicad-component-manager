@@ -276,6 +276,10 @@ class Worker(QThread):
                     err = f"PDF too small ({sz} B) — likely placeholder"
                     try: Path(path).unlink()
                     except OSError: pass
+            if ok:
+                local_ds = pdf_downloader.get_pdf_relative_path(pid)
+                _update_symbol_datasheet(pid, cfg["output_dir"], local_ds)
+                c["ds_link"] = local_ds
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
             self.step_done.emit(pid, "pdf", ok, {"url": url, "error": err or ""})
         except Exception as e:
@@ -320,6 +324,39 @@ def _check_existing(pid, output_dir):
     if pdf.exists() and pdf.stat().st_size >= PDF_MIN_BYTES:
         out["pdf_ok"] = True
     return out
+
+
+def _update_symbol_datasheet(pid: str, output_dir: str, new_ds: str) -> bool:
+    """Patch the Datasheet property for pid in the symbol library file."""
+    sym_file = Path(output_dir) / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
+    if not sym_file.exists():
+        return False
+    try:
+        content = sym_file.read_text(encoding="utf-8", errors="replace")
+        marker = f'(property "LCSC" "{pid}"'
+
+        def patch_block(m):
+            block = m.group(0)
+            if marker not in block:
+                return block
+            return re.sub(
+                r'(\(property "Datasheet" ")[^"]*(")',
+                lambda dm: dm.group(1) + new_ds + dm.group(2),
+                block,
+            )
+
+        new_content = re.sub(
+            r'\n  \(symbol "[^"]*".*?\n  \)',
+            patch_block,
+            content,
+            flags=re.DOTALL,
+        )
+        if new_content != content:
+            sym_file.write_text(new_content, encoding="utf-8")
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to update symbol datasheet for {pid}: {e}")
+        return False
 
 
 def _parse_sym_file(sym_file: Path):
@@ -806,7 +843,7 @@ class MainWindow(QMainWindow):
                         s.step = St.PENDING
                 raw_ds = e.get("datasheet", "")
                 if raw_ds.startswith("http"):
-                    s.pdf = St.SKIPPED
+                    s.pdf = St.PENDING
                 else:
                     rel = re.sub(r'^\$\{[^}]+\}/', "", raw_ds)
                     pdf_p = (lib / rel) if rel else (lib / "pdf" / f"{pid}.pdf")
