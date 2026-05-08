@@ -37,4 +37,4 @@ if ! pip check 2>/dev/null; then
 fi
 
 echo "All dependencies satisfied. Launching GUI ..."
-python gui.py
+python gui2.py

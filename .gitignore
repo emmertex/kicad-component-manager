@@ -147,3 +147,8 @@ export/
 
 # LCSC Library Files
 JLCPCB*
+
+*.zip
+
+# macOS
+.DS_Store

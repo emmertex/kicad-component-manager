@@ -1,0 +1,23 @@
+{
+  "$schema": "https://go.kicad.org/pcm/schemas/v1",
+  "name": "LCSC to KiCad Converter",
+  "description": "Download LCSC/JLCPCB parts and add them to KiCad libraries",
+  "description_full": "GUI tool to search LCSC part numbers, download symbols, footprints, STEP models, and PDF datasheets, and add them directly to your KiCad library. Tracks download status per component and supports retry of individual steps.",
+  "identifier": "com.emmertex.lcsc2kicad",
+  "type": "plugin",
+  "author": {
+    "name": "Andrew Frahn",
+    "contact": {
+      "email": "andrew@emmertex.com"
+    }
+  },
+  "license": "MIT",
+  "resources": {},
+  "versions": [
+    {
+      "version": "1.0.2",
+      "status": "stable",
+      "kicad_version": "7.0"
+    }
+  ]
+}
