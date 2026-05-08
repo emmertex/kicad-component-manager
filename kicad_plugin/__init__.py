@@ -32,6 +32,10 @@ _PLUGIN_DIR = Path(__file__).parent.resolve()
 _ICON       = _PLUGIN_DIR / "icon.png"
 _LOG_FILE   = Path.home() / ".lcsc2kicad_plugin.log"
 
+_WIN  = sys.platform == "win32"
+_VBIN = "Scripts" if _WIN else "bin"
+_VPY  = "python.exe" if _WIN else "python"
+
 _GUI_CANDIDATES = [
     _PLUGIN_DIR / "gui2.py",           # PCM self-contained install
     _PLUGIN_DIR.parent / "gui2.py",    # Repo symlink install
@@ -62,26 +66,29 @@ def _find_python(gui: Path) -> str:
     """
     Return a Python interpreter path. Checks venvs by file existence only
     (no subprocess calls), then falls back to system python3 / sys.executable.
+    On Windows venvs live under Scripts\python.exe; on Unix under bin/python.
     """
     candidates = [
-        gui.parent / "venv" / "bin" / "python",
-        gui.parent.parent / "venv" / "bin" / "python",
+        gui.parent / "venv" / _VBIN / _VPY,
+        gui.parent.parent / "venv" / _VBIN / _VPY,
     ]
     for p in candidates:
         _log(f"python candidate: {p} — {'found' if p.exists() else 'not found'}")
         if p.exists():
             return str(p)
 
-    sys_py = shutil.which("python3")
-    _log(f"shutil.which('python3') = {sys_py}")
-    if sys_py:
-        return sys_py
+    for name in ("python3", "python"):
+        sys_py = shutil.which(name)
+        _log(f"shutil.which({name!r}) = {sys_py}")
+        if sys_py:
+            return sys_py
 
     _log(f"falling back to sys.executable = {sys.executable}")
     return sys.executable
 
 
 def _create_venv(venv_dir: Path, requirements: Path) -> tuple[bool, str]:
+    pip_name = "pip.exe" if _WIN else "pip"
     try:
         r = subprocess.run(
             [sys.executable, "-m", "venv", str(venv_dir)],
@@ -89,7 +96,7 @@ def _create_venv(venv_dir: Path, requirements: Path) -> tuple[bool, str]:
         )
         if r.returncode != 0:
             return False, r.stderr.decode(errors="replace")
-        pip = venv_dir / "bin" / "pip"
+        pip = venv_dir / _VBIN / pip_name
         subprocess.run([str(pip), "install", "--upgrade", "pip", "--quiet"],
                        capture_output=True, timeout=120)
         r = subprocess.run(
@@ -210,11 +217,18 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
                 )
                 return
 
-            python = str(venv_dir / "bin" / "python")
+            python = str(venv_dir / _VBIN / _VPY)
 
         # ── Launch gui2.py ────────────────────────────────────────────────────
         _log(f"Launching: {python} {gui}")
         gui_log = _LOG_FILE.parent / ".lcsc2kicad_gui.log"
+        if _WIN:
+            detach_kwargs = {
+                "creationflags": subprocess.DETACHED_PROCESS
+                                 | subprocess.CREATE_NEW_PROCESS_GROUP,
+            }
+        else:
+            detach_kwargs = {"start_new_session": True}
         try:
             with open(gui_log, "a") as gui_stderr:
                 proc = subprocess.Popen(
@@ -222,7 +236,7 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
                     cwd=str(gui.parent),
                     stdout=gui_stderr,
                     stderr=gui_stderr,
-                    start_new_session=True,
+                    **detach_kwargs,
                 )
             _log(f"Popen succeeded, pid={proc.pid}  (gui stderr → {gui_log})")
         except Exception as e:
