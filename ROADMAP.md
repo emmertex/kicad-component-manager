@@ -15,13 +15,6 @@ I am happy to accept PRs to improve it — vibe coded or otherwise — as long a
 
 ## Next Up
 
-- Sorting of the table
-- Enable and disable columns
-
----
-
-## Very Soon (weeks)
-
 - Named categories
 
 ---
@@ -38,7 +31,6 @@ I am happy to accept PRs to improve it — vibe coded or otherwise — as long a
 ## When I Feel Like It
 
 - Stock level checks for BOM items
-- LCSC URL links pointing to the English site
 - Reuse footprints and STEP models when they are identical
   - Hash STEP files to detect duplicates
   - Decide whether to trust footprint names or do deeper comparison

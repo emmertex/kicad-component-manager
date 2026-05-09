@@ -1,8 +1,8 @@
-# LCSC to KiCad Library Converter
+# KiCad Library Manager with LCSC Importer
 
-A GUI for downloading LCSC/JLCPCB components and adding them directly to your KiCad symbol, footprint, and 3D model libraries.
+A GUI for downloading and managing LCSC components in your KiCAD Library.  
 
-![LCSC to KiCad Converter](images/Screenshot_20260508_100352.png)
+![LCSC to KiCad Converter](images/Screenshot_20260509_231744.png)
 
 ---
 
@@ -20,20 +20,6 @@ A GUI for downloading LCSC/JLCPCB components and adding them directly to your Ki
 - Available as a KiCad Action Plugin (Tools → External Plugins)
 
 ---
-
-## The Download Status Table
-
-| Column | Meaning |
-|---|---|
-| LCSC Part # | Normalised part number |
-| Value | Component value from the KiCad symbol |
-| Description | Component description (clipped; hover for full text) |
-| Valid | Part confirmed on EasyEDA; library checked for existing files |
-| Symbol | `.kicad_sym` entry created |
-| Footprint | `.kicad_mod` file created |
-| STEP | 3D STEP model downloaded |
-| PDF | Datasheet downloaded and size-validated |
-| 🗑 | Delete from library |
 
 **Status icons**
 
@@ -137,18 +123,6 @@ Python dependencies (PySide6, requests, etc.) are handled automatically on first
 
 ---
 
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| Part not found | Verify the LCSC number exists on jlcpcb.com |
-| STEP shows ✗ after footprint ✓ | The 3D model may not be available on EasyEDA; click ✗ to retry |
-| PDF shows ✗ | LCSC may not have a datasheet; the LCSC page URL is in the tooltip |
-| Plugin doesn't appear in KiCad | Restart KiCad; check the scripting console for import errors |
-| Plugin launches wrong Python | Edit `kicad_plugin/__init__.py` — `_find_python()` |
-
----
-
 ## Credits
 
 Built upon:
@@ -160,6 +134,11 @@ Built upon:
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for planned features and priorities.
+
+
+## Changelog
+
+See [CHANGELOG.md](changelog.md) for brief overview of releases.
 
 ---
 

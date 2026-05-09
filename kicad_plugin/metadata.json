@@ -1,8 +1,8 @@
 {
   "$schema": "https://go.kicad.org/pcm/schemas/v2",
-  "name": "LCSC to KiCad Converter",
-  "description": "Download LCSC parts and add them to KiCad libraries",
-  "description_full": "GUI tool to search LCSC part numbers, download symbols, footprints, STEP models, and PDF datasheets, and add them directly to your KiCad library. Tracks download status per component and supports retry of individual steps.",
+  "name": "KiCad Library Manager",
+  "description": "Manage custom libraries, and automatically download LCSC parts.",
+  "description_full": "GUI tool to search LCSC part numbers, download symbols, footprints, STEP models, and PDF datasheets, and add them directly to your KiCad library. Tracks download status per component and supports retry of individual steps.  Manage the library and its metadata in tool.",
   "identifier": "com.github.emmertex.lcsc2kicad-GUI",
   "type": "plugin",
   "author": {
@@ -18,7 +18,7 @@
   },
   "versions": [
     {
-      "version": "1.0.6",
+      "version": "1.1.0",
       "platforms": ["windows", "linux", "macos"],
       "status": "stable",
       "kicad_version": "7.0"

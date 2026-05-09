@@ -3,11 +3,11 @@ import logging
 import os
 import re
 
-import requests
-import helper
 import component_info
-from .symbol_handlers import handlers
+import helper
+import requests
 
+from .symbol_handlers import handlers
 
 template_lib_header = f"""\
 (kicad_symbol_lib (version 20210201) (generator TousstNicolas/JLC2KiCad_lib)
@@ -135,12 +135,21 @@ def create_symbol(
       (effects (font (size 1.27 1.27)) hide)
     )"""
 
+    # Determine the "Value" property - use LCSC value if available, otherwise use ComponentName
+    value_property = ComponentName
+    if component_info_data:
+        value_property = (
+            component_info_data.get("value")
+            or component_info_data.get("Value")
+            or ComponentName
+        )
+
     template_lib_component = f"""\
   (symbol "{ComponentName}" {kicad_symbol.pinNamesHide} {kicad_symbol.pinNumbersHide} (in_bom yes) (on_board yes)
     (property "Reference" "{symmbolic_prefix}" (id 0) (at 0 1.27 0)
       (effects (font (size 1.27 1.27)))
     )
-    (property "Value" "{ComponentName}" (id 1) (at 0 -2.54 0)
+    (property "Value" "{value_property}" (id 1) (at 0 -2.54 0)
       (effects (font (size 1.27 1.27)))
     )
     (property "Footprint" "{footprint_name}" (id 2) (at 0 -10.16 0)

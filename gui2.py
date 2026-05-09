@@ -9,14 +9,35 @@ from enum import Enum
 from pathlib import Path
 from queue import Queue
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QComboBox,
-    QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QPushButton, QSizePolicy,
-    QSplitter, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 # ── Backend path setup ────────────────────────────────────────────────────────
@@ -24,8 +45,8 @@ _LIB = Path(__file__).parent / "lcsc2kicad-GUI" / "JLC2KiCadLib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
-import helper
 import component_info as _cinfo
+import helper
 import pdf_downloader
 from footprint.footprint import create_footprint
 from symbol.symbol import create_symbol
@@ -38,45 +59,158 @@ MAX_RECENT = 10
 PDF_MIN_BYTES = 10240
 SYMBOL_LIB = "components"
 
-C_PART, C_VALUE, C_DESC, C_VALID, C_SYM, C_FP, C_STEP, C_PDF, C_DEL = range(9)
-COL_NAMES = ["LCSC Part #", "Value", "Description", "Valid", "Symbol", "Footprint", "STEP", "PDF", ""]
-STEP_COLS = {"valid": C_VALID, "symbol": C_SYM, "footprint": C_FP, "step": C_STEP, "pdf": C_PDF}
+(
+    C_PART,
+    C_VALUE,
+    C_DESC,
+    C_MFR,
+    C_CAT,
+    C_FP_TEXT,
+    C_PKG,
+    C_ATTRS,
+    C_VALID,
+    C_SYM,
+    C_FP,
+    C_STEP,
+    C_PDF,
+    C_DEL,
+) = range(14)
+COL_NAMES = [
+    "LCSC Part #",
+    "Value",
+    "Description",
+    "Manufacturer",
+    "Category",
+    "Footprint Name",
+    "Package",
+    "Key Attributes",
+    "Valid",
+    "Sym",
+    "FP",
+    "STEP",
+    "PDF",
+    "",
+]
+COL_VIEW_NAMES = [
+    "LCSC Part #",
+    "Value",
+    "Description",
+    "Manufacturer",
+    "Category",
+    "Footprint Name",
+    "Package",
+    "Key Attributes",
+    "Valid",
+    "Symbol",
+    "Footprint",
+    "STEP",
+    "PDF",
+    "Delete",
+]
+STEP_COLS = {
+    "valid": C_VALID,
+    "symbol": C_SYM,
+    "footprint": C_FP,
+    "step": C_STEP,
+    "pdf": C_PDF,
+}
 COL_STEPS = {v: k for k, v in STEP_COLS.items()}
+
+# Detail-panel metadata fields: (label, PartState attr, editable)
+METADATA_FIELDS = [
+    ("LCSC Part #", "pid", False),
+    ("Value", "value", True),
+    ("Description", "description", True),
+    ("Manufacturer", "mfr", True),
+    ("Category", "category", True),
+    ("Footprint Name", "fp_name_text", False),
+    ("Package", "package", True),
+    ("Key Attributes", "attributes", True),
+]
+
+# PartState attr → table column index (for live cell updates on edit)
+ATTR_COL = {
+    "value": C_VALUE,
+    "description": C_DESC,
+    "mfr": C_MFR,
+    "category": C_CAT,
+    "fp_name_text": C_FP_TEXT,
+    "package": C_PKG,
+    "attributes": C_ATTRS,
+}
+
+# PartState attr → KiCad symbol property name(s) to patch
+ATTR_PROP: dict[str, str | list] = {
+    "value": "Value",
+    "description": ["Description_1", "Description"],
+    "mfr": "Manufacturer",
+    "category": "Category",
+    "package": "Package",
+    "attributes": "Key_Attributes",
+}
 
 
 class St(Enum):
-    PENDING    = "○"
+    PENDING = "○"
     PROCESSING = "⟳"
-    SUCCESS    = "✓"
-    FAILED     = "✗"
-    SKIPPED    = "—"
+    SUCCESS = "✓"
+    FAILED = "✗"
+    SKIPPED = "—"
 
 
 ST_COLOR = {
-    St.PENDING:    "#808080",
+    St.PENDING: "#808080",
     St.PROCESSING: "#2196F3",
-    St.SUCCESS:    "#4CAF50",
-    St.FAILED:     "#F44336",
-    St.SKIPPED:    "#9E9E9E",
+    St.SUCCESS: "#4CAF50",
+    St.FAILED: "#F44336",
+    St.SKIPPED: "#9E9E9E",
 }
+
+ST_SORT = {
+    St.FAILED: 0,
+    St.PROCESSING: 1,
+    St.PENDING: 2,
+    St.SKIPPED: 3,
+    St.SUCCESS: 4,
+}
+
+
+# ── Sortable table item ───────────────────────────────────────────────────────
+class _SortItem(QTableWidgetItem):
+    """QTableWidgetItem that sorts by Qt.UserRole when set, else display text."""
+
+    def __lt__(self, other):
+        lv = self.data(Qt.UserRole)
+        rv = other.data(Qt.UserRole)
+        if lv is not None and rv is not None:
+            return lv < rv
+        return super().__lt__(other)
 
 
 # ── Part state ────────────────────────────────────────────────────────────────
 @dataclass
 class PartState:
     pid: str
-    valid:       St  = St.PENDING
-    symbol:      St  = St.PENDING
-    footprint:   St  = St.PENDING
-    step:        St  = St.PENDING
-    pdf:         St  = St.PENDING
-    pdf_url:     str = ""
-    value:       str = ""
+    valid: St = St.PENDING
+    symbol: St = St.PENDING
+    footprint: St = St.PENDING
+    step: St = St.PENDING
+    pdf: St = St.PENDING
+    pdf_url: str = ""
+    value: str = ""
     description: str = ""
-    logs:        list = field(default_factory=list)
+    fp_name_text: str = ""
+    package: str = ""
+    mfr: str = ""
+    category: str = ""
+    attributes: str = ""
+    logs: list = field(default_factory=list)
 
-    def get(self, name): return getattr(self, name)
-    def put(self, name, v): setattr(self, name, v)
+    def get(self, name):
+        return getattr(self, name)
+
+    def put(self, name, v):
+        setattr(self, name, v)
 
 
 # ── Log capture ───────────────────────────────────────────────────────────────
@@ -96,8 +230,9 @@ class _Cap(logging.Handler):
 # ── Worker ────────────────────────────────────────────────────────────────────
 class Worker(QThread):
     step_started = Signal(str, str)
-    step_done    = Signal(str, str, bool, dict)
-    log_line     = Signal(str, str)
+    step_done = Signal(str, str, bool, dict)
+    log_line = Signal(str, str)
+    scrape_done = Signal(str, dict)
 
     def __init__(self):
         super().__init__()
@@ -109,6 +244,9 @@ class Worker(QThread):
 
     def retry(self, pid, step, cfg):
         self._q.put(("retry", pid, step, cfg))
+
+    def scrape(self, pid):
+        self._q.put(("scrape", pid))
 
     def stop(self):
         self._q.put(None)
@@ -122,6 +260,8 @@ class Worker(QThread):
                 self._full(task[1], task[2])
             elif task[0] == "retry":
                 self._do_retry(task[1], task[2], task[3])
+            elif task[0] == "scrape":
+                self._do_scrape(task[1])
 
     # ── Full sequence ─────────────────────────────────────────────────────────
     def _full(self, pid, cfg):
@@ -178,9 +318,12 @@ class Worker(QThread):
             sym_uuids = [i["component_uuid"] for i in results[:-1]]
             log(f"OK — {len(sym_uuids)} sym unit(s), fp {fp_uuid[:8]}…")
             existing = _check_existing(pid, cfg["output_dir"])
-            log(f"Library: sym={existing.get('sym_ok')}, fp={existing.get('fp_ok')}, step={existing.get('step_ok')}, pdf={existing.get('pdf_ok')}")
+            log(
+                f"Library: sym={existing.get('sym_ok')}, fp={existing.get('fp_ok')}, step={existing.get('step_ok')}, pdf={existing.get('pdf_ok')}"
+            )
             extra = {
-                "fp_uuid": fp_uuid, "sym_uuids": sym_uuids,
+                "fp_uuid": fp_uuid,
+                "sym_uuids": sym_uuids,
                 "lcsc_url": f"https://www.lcsc.com/product-detail/{pid}.html",
                 **existing,
             }
@@ -194,7 +337,9 @@ class Worker(QThread):
     def _do_footprint(self, pid, c, cfg):
         fp_uuid = c.get("fp_uuid")
         if not fp_uuid:
-            self.step_done.emit(pid, "footprint", False, {"error": "No UUID — re-run Valid"})
+            self.step_done.emit(
+                pid, "footprint", False, {"error": "No UUID — re-run Valid"}
+            )
             return
         inc = cfg["dl_step"]
         h = _Cap(self._logfn(pid))
@@ -219,7 +364,10 @@ class Worker(QThread):
             if inc:
                 bare = fp_name.split(":")[-1] if ":" in fp_name else fp_name
                 step_ok = (
-                    Path(cfg["output_dir"]) / "footprint" / "packages3d" / f"{bare}.step"
+                    Path(cfg["output_dir"])
+                    / "footprint"
+                    / "packages3d"
+                    / f"{bare}.step"
                 ).exists()
                 self.step_done.emit(pid, "step", step_ok, {})
         except Exception as e:
@@ -233,13 +381,20 @@ class Worker(QThread):
     def _do_symbol(self, pid, c, cfg):
         sym_uuids = c.get("sym_uuids")
         if not sym_uuids:
-            self.step_done.emit(pid, "symbol", False, {"error": "No UUIDs — re-run Valid"})
+            self.step_done.emit(
+                pid, "symbol", False, {"error": "No UUIDs — re-run Valid"}
+            )
             return
         h = _Cap(self._logfn(pid))
         logging.getLogger().addHandler(h)
         self.step_started.emit(pid, "symbol")
         try:
-            info = c.get("comp_info") or _cinfo.extract_component_info(pid)
+            # Prefer _fetch_lcsc_data as it uses the JSON API which includes Key Attributes
+            info = c.get("comp_info") or _fetch_lcsc_data(pid)
+            if not info:
+                # Fallback to the BS4-based scraper if API fails
+                info = _cinfo.extract_component_info(pid)
+
             c["comp_info"] = info
             ds = c.get("ds_link") or c.get("lcsc_url") or ""
             fp = (c.get("fp_name") or "").replace(".pretty", "")
@@ -254,9 +409,28 @@ class Worker(QThread):
                 skip_existing=False,
                 component_info_data=info,
             )
-            self.step_done.emit(pid, "symbol", True, {
-                "description": info.get("description", "") if info else "",
-            })
+
+            # Extract attributes for the GUI
+            self.step_done.emit(
+                pid,
+                "symbol",
+                True,
+                {
+                    "value": info.get("value", ""),
+                    "description": info.get("description", ""),
+                    "package": (info.get("package") or info.get("Package") or ""),
+                    "mfr": (
+                        info.get("mfr")
+                        or info.get("manufacturer")
+                        or info.get("Manufacturer")
+                        or ""
+                    ),
+                    "category": (info.get("category") or info.get("Category") or ""),
+                    "attributes": (
+                        info.get("attributes") or info.get("Key_Attributes") or ""
+                    ),
+                },
+            )
         except Exception as e:
             self._logfn(pid)(f"Symbol error: {e}")
             self.step_done.emit(pid, "symbol", False, {"error": str(e)})
@@ -274,8 +448,10 @@ class Worker(QThread):
                 if sz < PDF_MIN_BYTES:
                     ok = False
                     err = f"PDF too small ({sz} B) — likely placeholder"
-                    try: Path(path).unlink()
-                    except OSError: pass
+                    try:
+                        Path(path).unlink()
+                    except OSError:
+                        pass
             if ok:
                 local_ds = pdf_downloader.get_pdf_relative_path(pid)
                 _update_symbol_datasheet(pid, cfg["output_dir"], local_ds)
@@ -289,8 +465,19 @@ class Worker(QThread):
         finally:
             logging.getLogger().removeHandler(h)
 
+    def _do_scrape(self, pid):
+        self.log_line.emit(pid, f"Scraping LCSC data for {pid}…")
+        data = _fetch_lcsc_data(pid)
+        if data:
+            self.log_line.emit(pid, f"Scrape OK — got: {', '.join(data.keys())}")
+        else:
+            self.log_line.emit(pid, "Scrape returned no data")
+        self.scrape_done.emit(pid, data)
+
     def _logfn(self, pid):
-        def _l(msg): self.log_line.emit(pid, msg)
+        def _l(msg):
+            self.log_line.emit(pid, msg)
+
         return _l
 
 
@@ -306,7 +493,7 @@ def _check_existing(pid, output_dir):
         if marker in txt:
             out["sym_ok"] = True
             idx = txt.find(marker)
-            block = txt[max(0, idx - 3000):idx + 200]
+            block = txt[max(0, idx - 3000) : idx + 200]
             m = re.search(r'\(property "Footprint" "([^"]*)"', block)
             if m:
                 fp_ref = m.group(1)
@@ -346,7 +533,7 @@ def _update_symbol_datasheet(pid: str, output_dir: str, new_ds: str) -> bool:
             )
 
         new_content = re.sub(
-            r'\n  \(symbol "[^"]*".*?\n  \)',
+            r'\n([ \t]+)\(symbol "[^"]*".*?\n\1\)',
             patch_block,
             content,
             flags=re.DOTALL,
@@ -359,10 +546,168 @@ def _update_symbol_datasheet(pid: str, output_dir: str, new_ds: str) -> bool:
         return False
 
 
+def _fetch_lcsc_data(pid: str) -> dict:
+    """Fetch product metadata and Key Attributes from the LCSC product API."""
+    out = {}
+    try:
+        session = helper.get_lcsc_session()
+        url = f"https://wmsc.lcsc.com/ftps/wm/product/detail?productCode={pid}"
+        headers = {
+            **helper.LCSC_HEADERS,
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"https://www.lcsc.com/product-detail/{pid}.html",
+        }
+        r = session.get(url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        product = r.json().get("result") or {}
+        if not product:
+            raise RuntimeError("Empty result")
+
+        for attr, candidates in (
+            ("value", ["productModel"]),
+            ("mfr", ["brandNameEn", "manufacturerName"]),
+            ("category", ["catalogName", "parentCatalogName"]),
+            ("package", ["encapStandard", "packageType"]),
+            ("description", ["productIntroEn", "productDescEn"]),
+        ):
+            for key in candidates:
+                val = (product.get(key) or "").strip()
+                if val:
+                    out[attr] = val
+                    break
+
+        # Key Attributes: paramVOList entries marked isMain=True first, then the rest
+        params = product.get("paramVOList") or []
+        main = [p for p in params if p.get("isMain") is True]
+        other = [p for p in params if p.get("isMain") is not True]
+        parts = []
+        for p in main + other:
+            name = (p.get("paramNameEn") or "").strip()
+            value = (p.get("paramValueEn") or "").strip()
+            if name and value and value != "-":
+                parts.append(f"{name}: {value}")
+        if parts:
+            out["attributes"] = "; ".join(parts)
+    except Exception as e:
+        logging.warning(f"LCSC fetch failed for {pid}: {e}")
+    return out
+
+
+def _update_symbol_property(
+    pid: str, output_dir: str, prop_names, new_value: str
+) -> bool:
+    """Patch one or more KiCad symbol properties for pid (tries each name in order)."""
+    sym_file = Path(output_dir) / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
+    if not sym_file.exists():
+        return False
+    if isinstance(prop_names, str):
+        prop_names = [prop_names]
+    try:
+        content = sym_file.read_text(encoding="utf-8", errors="replace")
+        marker = f'(property "LCSC" "{pid}"'
+
+        # Find all top-level symbol starts.
+        # They usually have 2 spaces or 1 tab indentation in KiCad 6+ files.
+        top_re = re.compile(r'\n([ \t]+)\(symbol "[^"]+"', re.MULTILINE)
+        matches = list(top_re.finditer(content))
+        if not matches:
+            logging.warning(f"No symbol blocks found in {sym_file}")
+            return False
+
+        new_chunks = []
+        last_pos = 0
+        found_block = False
+
+        for i, m in enumerate(matches):
+            start = m.start()
+            # Add text between symbols (or before first symbol)
+            new_chunks.append(content[last_pos:start])
+
+            # Determine block end: start of next symbol or last ')' of the library
+            if i + 1 < len(matches):
+                end = matches[i + 1].start()
+            else:
+                # The library footer starts with the final ')'. The last symbol ends before it.
+                end = content.rfind(")")
+                if end == -1:
+                    end = len(content)
+
+            block = content[start:end]
+            indent = m.group(1)
+
+            if marker in block and not found_block:
+                found_block = True
+                patched = block
+                replaced = False
+                for name in prop_names:
+                    # Use count=1 to ensure we only update the first occurrence in this block
+                    patched_new, count = re.subn(
+                        r'(\(property "' + re.escape(name) + r'" ")[^"]*(")',
+                        lambda dm: dm.group(1) + new_value + dm.group(2),
+                        block,
+                        count=1,
+                    )
+                    if count > 0:
+                        patched = patched_new
+                        replaced = True
+                        break
+
+                if not replaced:
+                    # Property not found in block — insert before the closing paren of the symbol
+                    inner = indent + "  "
+                    new_prop = (
+                        f'\n{inner}(property "{prop_names[0]}" "{new_value}" (id 99) (at 0 0 0)\n'
+                        f"{inner}  (effects (font (size 1.27 1.27)) hide)\n"
+                        f"{inner})"
+                    )
+                    # Find the symbol's closing parenthesis
+                    # Prefer the one matching the symbol's indentation
+                    idx = patched.rfind(f"\n{indent})")
+                    if idx == -1:
+                        # Fallback: any closing paren at the end of a line
+                        m_end = re.search(r"\n[ \t]*\)\s*$", patched)
+                        if m_end:
+                            idx = m_end.start()
+                        else:
+                            # Final fallback: just the last ')' in the block
+                            idx = patched.rfind(")")
+
+                    if idx >= 0:
+                        patched = patched[:idx] + new_prop + patched[idx:]
+
+                new_chunks.append(patched)
+            else:
+                new_chunks.append(block)
+
+            last_pos = end
+
+        # Add remaining content (likely the final ')' and trailing newlines)
+        new_chunks.append(content[last_pos:])
+        new_content = "".join(new_chunks)
+
+        if not found_block:
+            logging.warning(f"Symbol block for {pid} not found in {sym_file}")
+            return False
+        if new_content != content:
+            sym_file.write_text(new_content, encoding="utf-8")
+            logging.info(f"Updated {prop_names} for {pid} in {sym_file.name}")
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to update symbol property for {pid}: {e}")
+        import traceback
+
+        logging.debug(traceback.format_exc())
+        return False
+
+
 def _parse_sym_file(sym_file: Path):
     content = sym_file.read_text(encoding="utf-8", errors="replace")
-    top_re = re.compile(r'^\t\(symbol "([^"]+)"', re.MULTILINE)
-    prop_re = re.compile(r'^\t\t\(property "([^"]+)"\s+"((?:[^"\\]|\\.)*)"', re.MULTILINE)
+    # Match only top-level symbol blocks: exactly 2 spaces (JLC2KiCad) or 1 tab (KiCad)
+    top_re = re.compile(r'^(?:  |\t)\(symbol "([^"]+)"', re.MULTILINE)
+    prop_re = re.compile(
+        r'^(?:    |\t\t)\(property "([^"]+)"\s+"((?:[^"\\]|\\.)*)"', re.MULTILINE
+    )
     matches = list(top_re.finditer(content))
     results = []
     for i, m in enumerate(matches):
@@ -370,14 +715,19 @@ def _parse_sym_file(sym_file: Path):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
         chunk = content[start:end]
         props = {pm.group(1): pm.group(2) for pm in prop_re.finditer(chunk)}
-        results.append({
-            "name": m.group(1),
-            "lcsc": props.get("LCSC", ""),
-            "footprint": props.get("Footprint", ""),
-            "datasheet": props.get("Datasheet", ""),
-            "value": props.get("Value", ""),
-            "description": props.get("Description_1", props.get("Description", "")),
-        })
+        results.append(
+            {
+                "name": m.group(1),
+                "lcsc": props.get("LCSC", ""),
+                "footprint": props.get("Footprint", ""),
+                "datasheet": props.get("Datasheet", ""),
+                "value": props.get("Value", ""),
+                "description": props.get("Description_1", props.get("Description", "")),
+                "package": props.get("Package", ""),
+                "mfr": props.get("Manufacturer", props.get("MFR", "")),
+                "category": props.get("Category", ""),
+            }
+        )
     return results
 
 
@@ -392,15 +742,16 @@ def _delete_from_lib(pid, output_dir):
         marker = f'(property "LCSC" "{pid}"'
         if marker in content:
             idx = content.find(marker)
-            block = content[max(0, idx - 3000):idx + 200]
+            block = content[max(0, idx - 3000) : idx + 200]
             m = re.search(r'\(property "Footprint" "([^"]*)"', block)
             if m:
                 fp_ref = m.group(1)
         # Remove the symbol block
         new = re.sub(
-            r'\n  \(symbol "[^"]*".*?\n  \)',
+            r'\n([ \t]+)\(symbol "[^"]*".*?\n\1\)',
             lambda m: "" if f'(property "LCSC" "{pid}"' in m.group(0) else m.group(0),
-            content, flags=re.DOTALL,
+            content,
+            flags=re.DOTALL,
         )
         if new != content:
             try:
@@ -415,15 +766,71 @@ def _delete_from_lib(pid, output_dir):
             lib / ln / "packages3d" / f"{fn}.step",
         ]:
             if p.exists():
-                try: p.unlink()
-                except OSError as e: errors.append(str(e))
+                try:
+                    p.unlink()
+                except OSError as e:
+                    errors.append(str(e))
 
     pdf = lib / "pdf" / f"{pid}.pdf"
     if pdf.exists():
-        try: pdf.unlink()
-        except OSError as e: errors.append(str(e))
+        try:
+            pdf.unlink()
+        except OSError as e:
+            errors.append(str(e))
 
     return errors
+
+
+# ── Settings dialog ───────────────────────────────────────────────────────────
+class SettingsDialog(QDialog):
+    def __init__(self, parent, dl_step: bool, dl_pdf: bool, col_visible: list):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(360)
+
+        vbox = QVBoxLayout(self)
+        vbox.setSpacing(10)
+
+        # Download Options
+        dl_group = QGroupBox("Download Options")
+        dl_layout = QVBoxLayout(dl_group)
+        self._step_cb = QCheckBox("Download STEP")
+        self._step_cb.setChecked(dl_step)
+        self._pdf_cb = QCheckBox("Download PDF")
+        self._pdf_cb.setChecked(dl_pdf)
+        dl_layout.addWidget(self._step_cb)
+        dl_layout.addWidget(self._pdf_cb)
+        vbox.addWidget(dl_group)
+
+        # View Options
+        view_group = QGroupBox("View Options")
+        grid = QGridLayout(view_group)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        self._col_cbs: list[QCheckBox] = []
+        for i, name in enumerate(COL_VIEW_NAMES):
+            cb = QCheckBox(name)
+            cb.setChecked(bool(col_visible[i]) if i < len(col_visible) else True)
+            self._col_cbs.append(cb)
+            grid.addWidget(cb, i // 2, i % 2)
+        vbox.addWidget(view_group)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        vbox.addWidget(btns)
+
+    @property
+    def dl_step(self):
+        return self._step_cb.isChecked()
+
+    @property
+    def dl_pdf(self):
+        return self._pdf_cb.isChecked()
+
+    @property
+    def col_visible(self):
+        return [cb.isChecked() for cb in self._col_cbs]
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
@@ -433,10 +840,19 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("LCSC to KiCad Converter")
         self.resize(1050, 720)
         self._parts: dict[str, PartState] = {}
+        self._dl_step = True
+        self._dl_pdf = False
+        # Info columns default hidden; status/identity columns visible
+        self._col_visible = [True] * len(COL_NAMES)
+        for _c in (C_MFR, C_CAT, C_FP_TEXT, C_PKG, C_ATTRS):
+            self._col_visible[_c] = False
+        self._sort_col = -1
+        self._sort_asc = True
         self._worker = Worker()
         self._worker.step_started.connect(self._on_started)
         self._worker.step_done.connect(self._on_done)
         self._worker.log_line.connect(self._on_log)
+        self._worker.scrape_done.connect(self._on_scrape_done)
         self._worker.start()
         self._build_ui()
         self._load_cache()
@@ -465,29 +881,90 @@ class MainWindow(QMainWindow):
         # Table + log splitter
         spl = QSplitter(Qt.Vertical)
 
-        self._tbl = QTableWidget(0, 9)
+        self._tbl = QTableWidget(0, 14)
         self._tbl.setHorizontalHeaderLabels(COL_NAMES)
-        self._tbl.horizontalHeader().setSectionResizeMode(C_PART, QHeaderView.ResizeToContents)
-        self._tbl.horizontalHeader().setSectionResizeMode(C_VALUE, QHeaderView.ResizeToContents)
-        self._tbl.horizontalHeader().setSectionResizeMode(C_DESC, QHeaderView.Stretch)
-        for c in (C_VALID, C_SYM, C_FP, C_STEP, C_PDF):
-            self._tbl.horizontalHeader().setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        self._tbl.setColumnWidth(C_DEL, 38)
-        self._tbl.horizontalHeader().setSectionResizeMode(C_DEL, QHeaderView.Fixed)
+        hdr = self._tbl.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        self._tbl.setColumnWidth(C_PART, 80)
+        self._tbl.setColumnWidth(C_VALUE, 160)
+        self._tbl.setColumnWidth(C_DESC, 500)
+        self._tbl.setColumnWidth(C_MFR, 130)
+        self._tbl.setColumnWidth(C_CAT, 110)
+        self._tbl.setColumnWidth(C_FP_TEXT, 180)
+        self._tbl.setColumnWidth(C_PKG, 80)
+        self._tbl.setColumnWidth(C_ATTRS, 240)
+        for c in (C_VALID, C_SYM, C_FP, C_STEP, C_PDF, C_DEL):
+            self._tbl.setColumnWidth(c, 28)
+            hdr.setSectionResizeMode(c, QHeaderView.Fixed)
         self._tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._tbl.cellClicked.connect(self._on_cell)
         self._tbl.currentCellChanged.connect(
             lambda cur_r, _cc, _pr, _pc: self._on_row(cur_r)
         )
+        hdr.setSortIndicatorShown(True)
+        hdr.sectionClicked.connect(self._on_header_clicked)
         spl.addWidget(self._tbl)
+
+        # Bottom pane: log (left 40%) + detail panel (right 60%)
+        bottom = QSplitter(Qt.Horizontal)
 
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setFont(QFont("Monospace", 9))
-        self._log.setMaximumHeight(160)
-        spl.addWidget(self._log)
-        spl.setSizes([520, 140])
+        bottom.addWidget(self._log)
+
+        detail = QWidget()
+        dv = QVBoxLayout(detail)
+        dv.setContentsMargins(4, 2, 4, 2)
+        dv.setSpacing(4)
+
+        btn_row = QHBoxLayout()
+        self._lcsc_btn = QPushButton("Open LCSC")
+        self._lcsc_btn.setEnabled(False)
+        self._lcsc_btn.clicked.connect(self._open_lcsc)
+        self._pdf_btn = QPushButton("Open PDF")
+        self._pdf_btn.setEnabled(False)
+        self._pdf_btn.clicked.connect(self._open_pdf)
+        self._scrape_btn = QPushButton("Scrape Data")
+        self._scrape_btn.setEnabled(False)
+        self._scrape_btn.clicked.connect(self._scrape_current)
+        btn_row.addWidget(self._lcsc_btn)
+        btn_row.addWidget(self._pdf_btn)
+        btn_row.addWidget(self._scrape_btn)
+        btn_row.addStretch()
+        dv.addLayout(btn_row)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        form_widget = QWidget()
+        self._form = QFormLayout(form_widget)
+        self._form.setContentsMargins(0, 0, 4, 0)
+        self._form.setSpacing(3)
+        self._form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._meta_edits: dict[str, QLineEdit] = {}
+        for label, attr, editable in METADATA_FIELDS:
+            edit = QLineEdit()
+            edit.setReadOnly(not editable)
+            if not editable:
+                edit.setStyleSheet(
+                    "QLineEdit { background: transparent; border: 1px solid transparent; }"
+                )
+            if editable:
+                edit.editingFinished.connect(
+                    lambda a=attr, e=edit: self._on_meta_edit(a, e)
+                )
+            self._meta_edits[attr] = edit
+            self._form.addRow(label + ":", edit)
+        scroll.setWidget(form_widget)
+        dv.addWidget(scroll, 1)
+
+        bottom.addWidget(detail)
+        bottom.setSizes([400, 600])
+
+        spl.addWidget(bottom)
+        spl.setSizes([500, 210])
         vbox.addWidget(spl, 1)
 
         # Library location row
@@ -502,27 +979,43 @@ class MainWindow(QMainWindow):
         row2.addWidget(br)
         vbox.addLayout(row2)
 
-        # Options
-        row3 = QHBoxLayout()
-        self._step_cb = QCheckBox("Download STEP")
-        self._step_cb.setChecked(True)
-        self._pdf_cb = QCheckBox("Download PDF")
-        self._pdf_cb.setChecked(False)
-        row3.addWidget(self._step_cb)
-        row3.addWidget(self._pdf_cb)
-        row3.addStretch()
-        vbox.addLayout(row3)
-
         # Bottom buttons
         row4 = QHBoxLayout()
         load_btn = QPushButton("Load Library")
         load_btn.clicked.connect(self._load_library)
+        settings_btn = QPushButton("Settings…")
+        settings_btn.clicked.connect(self._open_settings)
         exit_btn = QPushButton("Exit")
         exit_btn.clicked.connect(self.close)
         row4.addWidget(load_btn)
+        row4.addWidget(settings_btn)
         row4.addStretch()
         row4.addWidget(exit_btn)
         vbox.addLayout(row4)
+
+    # ── Settings ──────────────────────────────────────────────────────────────
+    def _open_settings(self):
+        dlg = SettingsDialog(self, self._dl_step, self._dl_pdf, self._col_visible)
+        if dlg.exec() == QDialog.Accepted:
+            self._dl_step = dlg.dl_step
+            self._dl_pdf = dlg.dl_pdf
+            self._col_visible = dlg.col_visible
+            for col, visible in enumerate(self._col_visible):
+                self._tbl.setColumnHidden(col, not visible)
+            self._save_cache()
+
+    # ── Sorting ───────────────────────────────────────────────────────────────
+    def _on_header_clicked(self, col):
+        if col == C_DEL:
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        order = Qt.AscendingOrder if self._sort_asc else Qt.DescendingOrder
+        self._tbl.horizontalHeader().setSortIndicator(col, order)
+        self._tbl.sortItems(col, order)
 
     # ── Cache ─────────────────────────────────────────────────────────────────
     def _load_cache(self):
@@ -535,8 +1028,32 @@ class MainWindow(QMainWindow):
                     self._lib.addItem(loc)
             if self._lib.count():
                 self._lib.setCurrentIndex(0)
-            self._step_cb.setChecked(d.get("dl_step", True))
-            self._pdf_cb.setChecked(d.get("dl_pdf", False))
+            self._dl_step = d.get("dl_step", True)
+            self._dl_pdf = d.get("dl_pdf", False)
+            saved_vis = list(d.get("col_visible", []))
+            n = len(saved_vis)
+            if n == 9:
+                # Original 9-col: 0-2 text, 3-7 status, 8 DEL
+                saved_vis = (
+                    saved_vis[:3] + [False] * 5 + saved_vis[3:8] + [saved_vis[8]]
+                )
+            elif n == 11:
+                # 11-col: 0-2 text, 3-7 status, 8 FP_TEXT, 9 PKG, 10 DEL
+                saved_vis = (
+                    saved_vis[:3]
+                    + [False, False, saved_vis[8], saved_vis[9], False]
+                    + saved_vis[3:8]
+                    + [saved_vis[10]]
+                )
+            elif n == 13:
+                # 13-col: 0-6 text, 7-11 status, 12 DEL — insert ATTRS(F) at 7
+                saved_vis = saved_vis[:7] + [False] + saved_vis[7:]
+            elif n < len(COL_NAMES):
+                saved_vis += [False] * (len(COL_NAMES) - n)
+            if len(saved_vis) >= len(COL_NAMES):
+                self._col_visible = saved_vis[: len(COL_NAMES)]
+            for col, visible in enumerate(self._col_visible):
+                self._tbl.setColumnHidden(col, not visible)
         except Exception:
             pass
 
@@ -557,25 +1074,33 @@ class MainWindow(QMainWindow):
             self._lib.setCurrentIndex(0)
         self._lib.blockSignals(False)
         try:
-            CACHE_FILE.write_text(json.dumps({
-                "recent_dirs": dirs,
-                "dl_step": self._step_cb.isChecked(),
-                "dl_pdf": self._pdf_cb.isChecked(),
-            }, indent=2))
+            CACHE_FILE.write_text(
+                json.dumps(
+                    {
+                        "recent_dirs": dirs,
+                        "dl_step": self._dl_step,
+                        "dl_pdf": self._dl_pdf,
+                        "col_visible": self._col_visible,
+                    },
+                    indent=2,
+                )
+            )
         except Exception:
             pass
 
     def _cfg(self):
         return {
             "output_dir": self._lib.currentText().strip(),
-            "dl_step": self._step_cb.isChecked(),
-            "dl_pdf": self._pdf_cb.isChecked(),
+            "dl_step": self._dl_step,
+            "dl_pdf": self._dl_pdf,
         }
 
     def _check_cfg(self):
         c = self._cfg()
         if not c["output_dir"]:
-            QMessageBox.warning(self, "No Library", "Please set Library Location first.")
+            QMessageBox.warning(
+                self, "No Library", "Please set Library Location first."
+            )
             return None
         return c
 
@@ -604,7 +1129,9 @@ class MainWindow(QMainWindow):
                 self._tbl.setCurrentCell(r, 0)
             return
         self._save_cache()
-        state = PartState(pid, pdf_url=f"https://www.lcsc.com/product-detail/{pid}.html")
+        state = PartState(
+            pid, pdf_url=f"https://www.lcsc.com/product-detail/{pid}.html"
+        )
         self._insert_row(pid, state)
         self._worker.process(pid, cfg)
 
@@ -612,18 +1139,30 @@ class MainWindow(QMainWindow):
         self._parts[pid] = state
         r = self._tbl.rowCount()
         self._tbl.insertRow(r)
-        item = QTableWidgetItem(pid)
-        item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-        self._tbl.setItem(r, C_PART, item)
+
+        # Part number with numeric sort key for correct ordering (C2 < C10)
+        part_item = _SortItem(pid)
+        part_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+        part_item.setData(Qt.UserRole, int(pid[1:]) if pid[1:].isdigit() else 0)
+        self._tbl.setItem(r, C_PART, part_item)
+
         self._set_text_cell(r, C_VALUE, state.value)
         self._set_text_cell(r, C_DESC, state.description, clip=True)
+        self._set_text_cell(r, C_MFR, state.mfr)
+        self._set_text_cell(r, C_CAT, state.category)
+        self._set_text_cell(r, C_FP_TEXT, state.fp_name_text)
+        self._set_text_cell(r, C_PKG, state.package)
+        self._set_text_cell(r, C_ATTRS, state.attributes)
         for step in ("valid", "symbol", "footprint", "step", "pdf"):
             self._set_cell(pid, step, state.get(step))
-        del_btn = QPushButton("🗑")
-        del_btn.setStyleSheet("color:#F44336;border:none;font-size:14px;")
-        del_btn.setFixedWidth(34)
-        del_btn.clicked.connect(lambda _, p=pid: self._delete(p))
-        self._tbl.setCellWidget(r, C_DEL, del_btn)
+
+        # Delete as a plain item (not a cell widget) so table sorting works correctly
+        del_item = QTableWidgetItem("🗑")
+        del_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        del_item.setTextAlignment(Qt.AlignCenter)
+        del_item.setForeground(QColor("#F44336"))
+        del_item.setToolTip("Click to delete")
+        self._tbl.setItem(r, C_DEL, del_item)
 
     def _row(self, pid):
         for r in range(self._tbl.rowCount()):
@@ -664,10 +1203,11 @@ class MainWindow(QMainWindow):
         col = STEP_COLS[step]
         it = self._tbl.item(r, col)
         if it is None:
-            it = QTableWidgetItem()
+            it = _SortItem()
             it.setFlags(Qt.ItemIsEnabled)
             self._tbl.setItem(r, col, it)
         it.setText(st.value)
+        it.setData(Qt.UserRole, ST_SORT[st])
         it.setForeground(QColor(ST_COLOR[st]))
         it.setTextAlignment(Qt.AlignCenter)
         if tip:
@@ -702,16 +1242,42 @@ class MainWindow(QMainWindow):
             tip = extra.get("error", "") if not ok else ""
             self._set_cell(pid, step, ns, tip)
 
-        # Populate Value/Description after symbol is created
+        # Populate text info cells after steps complete
+        if step == "footprint" and ok:
+            fp_name = extra.get("fp_name", "")
+            if fp_name:
+                r = self._row(pid)
+                if r >= 0:
+                    s.fp_name_text = fp_name
+                    self._set_text_cell(r, C_FP_TEXT, fp_name)
+
         if step == "symbol" and ok:
             desc = extra.get("description", "")
-            # Read back Value from the newly-written kicad_sym
             value = self._read_value_from_sym(pid)
             self._update_info_cells(pid, value=value, description=desc)
+            r = self._row(pid)
+            if r >= 0:
+                for attr, col, key in (
+                    ("package", C_PKG, "package"),
+                    ("mfr", C_MFR, "mfr"),
+                    ("category", C_CAT, "category"),
+                    ("attributes", C_ATTRS, "attributes"),
+                ):
+                    val = extra.get(key, "")
+                    if val:
+                        setattr(s, attr, val)
+                        self._set_text_cell(r, col, val)
+
+        self._refresh_detail(pid)
 
         # After successful validate, mark already-present items
         if step == "valid" and ok:
-            key_map = {"symbol": "sym_ok", "footprint": "fp_ok", "step": "step_ok", "pdf": "pdf_ok"}
+            key_map = {
+                "symbol": "sym_ok",
+                "footprint": "fp_ok",
+                "step": "step_ok",
+                "pdf": "pdf_ok",
+            }
             for sub, key in key_map.items():
                 if extra.get(key):
                     s.put(sub, St.SUCCESS)
@@ -741,23 +1307,118 @@ class MainWindow(QMainWindow):
 
     def _on_row(self, row):
         self._log.clear()
+        self._lcsc_btn.setEnabled(False)
+        self._pdf_btn.setEnabled(False)
+        self._scrape_btn.setEnabled(False)
+        for edit in self._meta_edits.values():
+            edit.setText("")
         if row < 0:
             return
         it = self._tbl.item(row, C_PART)
         if not it:
             return
         s = self._parts.get(it.text())
-        if s:
-            self._log.setPlainText("\n".join(s.logs))
-            sb = self._log.verticalScrollBar()
-            sb.setValue(sb.maximum())
+        if not s:
+            return
+        self._log.setPlainText("\n".join(s.logs))
+        sb = self._log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        self._lcsc_btn.setEnabled(True)
+        self._scrape_btn.setEnabled(True)
+        cfg = self._cfg()
+        if cfg["output_dir"]:
+            pdf_p = Path(cfg["output_dir"]) / "pdf" / f"{s.pid}.pdf"
+            self._pdf_btn.setEnabled(
+                pdf_p.exists() and pdf_p.stat().st_size >= PDF_MIN_BYTES
+            )
+        for _label, attr, _editable in METADATA_FIELDS:
+            self._meta_edits[attr].setText(getattr(s, attr, ""))
 
-    # ── Cell click (retry) ────────────────────────────────────────────────────
+    # ── Detail panel actions ──────────────────────────────────────────────────
+    def _selected_pid(self):
+        it = self._tbl.item(self._tbl.currentRow(), C_PART)
+        return it.text() if it else None
+
+    def _open_lcsc(self):
+        pid = self._selected_pid()
+        if pid:
+            QDesktopServices.openUrl(
+                QUrl(f"https://www.lcsc.com/product-detail/{pid}.html")
+            )
+
+    def _open_pdf(self):
+        pid = self._selected_pid()
+        if not pid:
+            return
+        cfg = self._cfg()
+        if not cfg["output_dir"]:
+            return
+        pdf_p = Path(cfg["output_dir"]) / "pdf" / f"{pid}.pdf"
+        if pdf_p.exists():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf_p)))
+
+    def _scrape_current(self):
+        pid = self._selected_pid()
+        if pid:
+            self._scrape_btn.setEnabled(False)
+            self._scrape_btn.setText("Scraping…")
+            self._worker.scrape(pid)
+
+    def _on_scrape_done(self, pid: str, data: dict):
+        if self._selected_pid() == pid:
+            self._scrape_btn.setEnabled(True)
+            self._scrape_btn.setText("Scrape Data")
+        s = self._parts.get(pid)
+        if not s or not data:
+            return
+        cfg = self._cfg()
+        r = self._row(pid)
+        for attr, val in data.items():
+            if not val or not hasattr(s, attr):
+                continue
+            setattr(s, attr, val)
+            col = ATTR_COL.get(attr)
+            if col is not None and r >= 0:
+                self._set_text_cell(r, col, val)
+            prop = ATTR_PROP.get(attr)
+            if prop and cfg["output_dir"]:
+                _update_symbol_property(pid, cfg["output_dir"], prop, val)
+        self._refresh_detail(pid)
+
+    def _on_meta_edit(self, attr, edit: QLineEdit):
+        pid = self._selected_pid()
+        if not pid:
+            return
+        s = self._parts.get(pid)
+        if not s:
+            return
+        val = edit.text()
+        setattr(s, attr, val)
+        col = ATTR_COL.get(attr)
+        if col is not None:
+            r = self._row(pid)
+            if r >= 0:
+                self._set_text_cell(r, col, val)
+        prop = ATTR_PROP.get(attr)
+        cfg = self._cfg()
+        if prop and cfg["output_dir"]:
+            _update_symbol_property(pid, cfg["output_dir"], prop, val)
+
+    def _refresh_detail(self, pid):
+        if self._selected_pid() == pid:
+            self._on_row(self._tbl.currentRow())
+
+    # ── Cell click (retry / delete) ───────────────────────────────────────────
     def _on_cell(self, row, col):
         it = self._tbl.item(row, C_PART)
         if not it:
             return
         pid = it.text()
+
+        if col == C_DEL:
+            self._delete(pid)
+            return
+
         s = self._parts.get(pid)
         if not s or col not in COL_STEPS:
             return
@@ -775,10 +1436,12 @@ class MainWindow(QMainWindow):
     # ── Delete ────────────────────────────────────────────────────────────────
     def _delete(self, pid):
         reply = QMessageBox.question(
-            self, "Delete Part",
+            self,
+            "Delete Part",
             f"Remove {pid} from the KiCad library?\n"
             "This deletes the symbol, footprint, STEP, and PDF files.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
@@ -810,7 +1473,9 @@ class MainWindow(QMainWindow):
         sym_dir = lib / "symbol"
         sym_files = sorted(sym_dir.glob("*.kicad_sym")) if sym_dir.exists() else []
         if not sym_files:
-            QMessageBox.information(self, "No Library", f"No .kicad_sym files in {sym_dir}")
+            QMessageBox.information(
+                self, "No Library", f"No .kicad_sym files in {sym_dir}"
+            )
             return
         loaded = 0
         for sf in sym_files:
@@ -825,12 +1490,18 @@ class MainWindow(QMainWindow):
                     continue
                 if pid in self._parts:
                     continue
-                s = PartState(pid, pdf_url=f"https://www.lcsc.com/product-detail/{pid}.html")
+                s = PartState(
+                    pid, pdf_url=f"https://www.lcsc.com/product-detail/{pid}.html"
+                )
                 s.value = e.get("value", "")
                 s.description = e.get("description", "")
                 s.valid = St.SUCCESS
                 s.symbol = St.SUCCESS
+                s.mfr = e.get("mfr", "")
+                s.category = e.get("category", "")
+                s.package = e.get("package", "")
                 fp_ref = e.get("footprint", "")
+                s.fp_name_text = fp_ref
                 if fp_ref and ":" in fp_ref:
                     ln, fn = fp_ref.split(":", 1)
                     mod = lib / f"{ln}.pretty" / f"{fn}.kicad_mod"
@@ -845,7 +1516,7 @@ class MainWindow(QMainWindow):
                 if raw_ds.startswith("http"):
                     s.pdf = St.PENDING
                 else:
-                    rel = re.sub(r'^\$\{[^}]+\}/', "", raw_ds)
+                    rel = re.sub(r"^\$\{[^}]+\}/", "", raw_ds)
                     pdf_p = (lib / rel) if rel else (lib / "pdf" / f"{pid}.pdf")
                     if pdf_p.exists() and pdf_p.stat().st_size >= PDF_MIN_BYTES:
                         s.pdf = St.SUCCESS
