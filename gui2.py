@@ -726,6 +726,7 @@ def _parse_sym_file(sym_file: Path):
                 "package": props.get("Package", ""),
                 "mfr": props.get("Manufacturer", props.get("MFR", "")),
                 "category": props.get("Category", ""),
+                "attributes": props.get("Key_Attributes", ""),
             }
         )
     return results
@@ -1495,6 +1496,7 @@ class MainWindow(QMainWindow):
                 )
                 s.value = e.get("value", "")
                 s.description = e.get("description", "")
+                s.attributes = e.get("attributes", "")
                 s.valid = St.SUCCESS
                 s.symbol = St.SUCCESS
                 s.mfr = e.get("mfr", "")
