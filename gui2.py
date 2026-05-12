@@ -607,13 +607,17 @@ def _update_symbol_property(
         content = sym_file.read_text(encoding="utf-8", errors="replace")
         marker = f'(property "LCSC" "{pid}"'
 
-        # Find all top-level symbol starts.
-        # They usually have 2 spaces or 1 tab indentation in KiCad 6+ files.
-        top_re = re.compile(r'\n([ \t]+)\(symbol "[^"]+"', re.MULTILINE)
-        matches = list(top_re.finditer(content))
-        if not matches:
+        # Find all symbol starts.
+        # We need to distinguish between top-level symbols and nested ones.
+        # Top-level symbols usually have the minimum indentation level (e.g. 2 spaces or 1 tab).
+        all_matches = list(re.finditer(r'\n([ \t]+)\(symbol "[^"]+"', content))
+        if not all_matches:
             logging.warning(f"No symbol blocks found in {sym_file}")
             return False
+
+        # Heuristic: top-level symbols are those with the minimum indentation found.
+        min_indent_len = min(len(m.group(1)) for m in all_matches)
+        matches = [m for m in all_matches if len(m.group(1)) == min_indent_len]
 
         new_chunks = []
         last_pos = 0
@@ -624,7 +628,7 @@ def _update_symbol_property(
             # Add text between symbols (or before first symbol)
             new_chunks.append(content[last_pos:start])
 
-            # Determine block end: start of next symbol or last ')' of the library
+            # Determine block end: start of next top-level symbol or last ')' of the library
             if i + 1 < len(matches):
                 end = matches[i + 1].start()
             else:
@@ -655,20 +659,36 @@ def _update_symbol_property(
 
                 if not replaced:
                     # Property not found in block — insert before the closing paren of the symbol
-                    inner = indent + "  "
+                    # Use the same indentation style as existing properties if possible
+                    inner_indent = "  "
+                    if "\t" in indent:
+                        inner_indent = "\t"
+                    inner = indent + inner_indent
+
                     new_prop = (
                         f'\n{inner}(property "{prop_names[0]}" "{new_value}" (id 99) (at 0 0 0)\n'
-                        f"{inner}  (effects (font (size 1.27 1.27)) hide)\n"
+                        f"{inner}{inner_indent}(effects (font (size 1.27 1.27)) hide)\n"
                         f"{inner})"
                     )
-                    # Find the symbol's closing parenthesis
-                    # Prefer the one matching the symbol's indentation
+
+                    # Find the main symbol's closing parenthesis.
+                    # It should be the last ')' in the block that is preceded by a newline and our symbol's indentation.
+                    # We look from the end of the block backwards.
                     idx = patched.rfind(f"\n{indent})")
+
                     if idx == -1:
-                        # Fallback: any closing paren at the end of a line
-                        m_end = re.search(r"\n[ \t]*\)\s*$", patched)
-                        if m_end:
-                            idx = m_end.start()
+                        # Fallback: find the last occurrence of a closing paren at the end of a line
+                        # that has roughly the right indentation.
+                        m_ends = list(re.finditer(r"\n[ \t]*\)\s*$", patched))
+                        if m_ends:
+                            # Prefer the one with matching indentation if it exists, otherwise the last one.
+                            matching = [
+                                me for me in m_ends if me.group(0).strip() == ")"
+                            ]
+                            # Wait, me.group(0) is \n[ \t]*\)\s*$
+                            # Let's just take the last match and hope for the best,
+                            # or better: find the one with the smallest indentation.
+                            idx = m_ends[-1].start()
                         else:
                             # Final fallback: just the last ')' in the block
                             idx = patched.rfind(")")
