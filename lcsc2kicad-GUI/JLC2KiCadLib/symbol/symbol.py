@@ -206,6 +206,32 @@ def get_type_values_properties(start_index, component_types_values):
     )
 
 
+def _find_lib_close(content):
+    """Return the index of the ) that closes the kicad_symbol_lib node."""
+    in_str = False
+    esc = False
+    depth = 0
+    for i, c in enumerate(content):
+        if esc:
+            esc = False
+            continue
+        if c == "\\" and in_str:
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return content.rfind(")")
+
+
 def update_library(
     library_name,
     symbol_path,
@@ -249,9 +275,11 @@ def update_library(
             lib_file.truncate()
             lib_file.write(sub.encode())
         else:
-            # move before the library footer and write the component template
+            # Insert before the library's closing ) using a depth-aware search
+            # so we always find the actual library footer, not a ) inside a symbol.
             # see https://github.com/TousstNicolas/JLC2KiCad_lib/issues/46
-            new_content = file_content[: file_content.rfind(")")]
-            new_content = new_content + template_lib_component + template_lib_footer
+            close_pos = _find_lib_close(file_content)
+            new_content = file_content[:close_pos] + template_lib_component + template_lib_footer
             lib_file.seek(0)
+            lib_file.truncate()
             lib_file.write(new_content.encode())

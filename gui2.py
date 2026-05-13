@@ -721,23 +721,62 @@ def _update_symbol_property(
         return False
 
 
+def _sym_lib_close(content: str) -> int:
+    """Return position of the ) closing the kicad_symbol_lib node."""
+    in_str = False
+    esc = False
+    depth = 0
+    for i, c in enumerate(content):
+        if esc:
+            esc = False
+            continue
+        if c == "\\" and in_str:
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(content)
+
+
 def _parse_sym_file(sym_file: Path):
     content = sym_file.read_text(encoding="utf-8", errors="replace")
-    # Match only top-level symbol blocks: exactly 2 spaces (JLC2KiCad) or 1 tab (KiCad)
-    top_re = re.compile(r'^(?:  |\t)\(symbol "([^"]+)"', re.MULTILINE)
+
+    # Only scan within the kicad_symbol_lib s-expression so we never pick up
+    # symbols that were accidentally placed outside the library close.
+    lib_end = _sym_lib_close(content)
+    inner = content[:lib_end]
+
+    # Find the minimum indentation of any (symbol declaration inside the library.
+    # That minimum level corresponds to top-level (component) symbols.
+    all_sym_re = re.compile(r'^([ \t]+)\(symbol "([^"]+)"', re.MULTILINE)
+    all_matches = list(all_sym_re.finditer(inner))
+    if not all_matches:
+        return []
+    min_indent = min(len(m.group(1)) for m in all_matches)
+    top_matches = [m for m in all_matches if len(m.group(1)) == min_indent]
+
     prop_re = re.compile(
-        r'^(?:    |\t\t)\(property "([^"]+)"\s+"((?:[^"\\]|\\.)*)"', re.MULTILINE
+        r'^[ \t]{2,}\(property "([^"]+)"\s+"((?:[^"\\]|\\.)*?)"',
+        re.MULTILINE,
     )
-    matches = list(top_re.finditer(content))
     results = []
-    for i, m in enumerate(matches):
+    for i, m in enumerate(top_matches):
         start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
-        chunk = content[start:end]
+        end = top_matches[i + 1].start() if i + 1 < len(top_matches) else lib_end
+        chunk = inner[start:end]
         props = {pm.group(1): pm.group(2) for pm in prop_re.finditer(chunk)}
         results.append(
             {
-                "name": m.group(1),
+                "name": m.group(2),
                 "lcsc": props.get("LCSC", ""),
                 "footprint": props.get("Footprint", ""),
                 "datasheet": props.get("Datasheet", ""),
