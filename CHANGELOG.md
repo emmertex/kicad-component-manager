@@ -12,6 +12,8 @@
   - Optional prefix in Settings
 - Minor UI tweaks
 - Library split bug resolved
+- Add support for EasyEDA Footprints where SMD is on more than 1 layer
+  - Example component C2844246
 
 #### v1.1.2
 - Correctly identify top-level symbols by analyzing the minimum indentation level in the file.

@@ -1,11 +1,12 @@
 import json
 import logging
-from math import pow, acos, pi
 import re
+from math import acos, pi, pow
 
-from KicadModTree import *
-from .model3d import get_WrlModel, get_StepModel
 from helper import mil2mm
+from KicadModTree import *
+
+from .model3d import get_StepModel, get_WrlModel
 
 __all__ = [
     "handlers",
@@ -108,14 +109,17 @@ def h_PAD(data, kicad_mod, footprint_info):
     pad_number = data[6]
     primitives = ""
 
-    if data[5] == "1":
-        pad_type = Pad.TYPE_SMT
-        pad_layer = Pad.LAYERS_SMT
-        drill_size = 1
-    else:
+    if data[7] > 0:
         pad_type = Pad.TYPE_THT
         pad_layer = Pad.LAYERS_THT
         drill_size = data[7] * 2
+    else:
+        pad_type = Pad.TYPE_SMT
+        drill_size = 1  # Dummy drill size for SMT, KicadModTree ignores it but we keep it for consistency
+        if data[5] == "2":
+            pad_layer = ["B.Cu", "B.Paste", "B.Mask"]
+        else:
+            pad_layer = Pad.LAYERS_SMT
 
     if data[0] == "OVAL":
         shape = getattr(Pad, "SHAPE_OVAL")
@@ -123,9 +127,9 @@ def h_PAD(data, kicad_mod, footprint_info):
         data[11] = mil2mm(data[11])
 
         if data[11] == 0:
-            drill_size = data[7] * 2
-        elif (data[7] * 2 < data[11]) ^ (
-            size[0] > size[1]
+            pass
+        elif (
+            (data[7] * 2 < data[11]) ^ (size[0] > size[1])
         ):  # invert the orientation of the drill hole if not in the same orientation as the pad shape
             drill_size = [data[7] * 2, data[11]]
         else:
@@ -136,9 +140,7 @@ def h_PAD(data, kicad_mod, footprint_info):
         rotation = float(data[9])
         data[11] = mil2mm(data[11])
 
-        if data[5] == "1":
-            drill_size = 1
-        elif float(data[11]) == 0:  # Check if the hole is oval
+        if float(data[11]) == 0:  # Check if the hole is oval
             pass
         else:
             drill_size = [data[7] * 2, data[11]]
