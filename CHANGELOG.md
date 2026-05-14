@@ -1,5 +1,26 @@
 ### v1.1 - KiCAD Library Managenent
 
+### v1.2.0
+
+- JLCPCB API
+  - Categories from JLC
+  - Prices and Stock Levels
+  - API Key in Settings (https://api.jlcpcb.com)
+- Categories
+  - Use sym-lib-table for KiCAD
+  - Categories (file names) from JLC with fallback to LCSC
+  - Optional prefix in Settings
+- Minor UI tweaks
+- Library split bug resolved
+
+#### v1.1.2
+- Correctly identify top-level symbols by analyzing the minimum indentation level in the file.
+- Use a more robust "reverse search" to find the exact closing parenthesis of the main symbol block.
+- Automatically detect and match the file's indentation style (tabs vs. spaces) for any new properties added.
+
+#### v1.1.1
+- Fix Attribute Loading
+
 #### v1.1.0
 - Improved Library Table
   - Turn on an off columns in settings

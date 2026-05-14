@@ -57,7 +57,28 @@ logging.getLogger().setLevel(logging.INFO)
 CACHE_FILE = Path.home() / ".lcsc2kicad_cache.json"
 MAX_RECENT = 10
 PDF_MIN_BYTES = 10240
-SYMBOL_LIB = "components"
+
+
+def _lib_name(category: str, prefix: str) -> str:
+    """Compute KiCad library filename from category and optional prefix."""
+    safe = re.sub(r'_+', '_', re.sub(r'[^\w\-]', '_', (category or "").strip())).strip('_')
+    if not safe:
+        safe = "components"
+    return f"{prefix}_{safe}" if prefix else safe
+
+
+def _find_sym_file(pid: str, sym_dir: Path) -> "Path | None":
+    """Search all .kicad_sym files in sym_dir for the given LCSC pid."""
+    if not sym_dir.exists():
+        return None
+    marker = f'(property "LCSC" "{pid}"'
+    for sf in sorted(sym_dir.glob("*.kicad_sym")):
+        try:
+            if marker in sf.read_text(encoding="utf-8", errors="replace"):
+                return sf
+        except OSError:
+            pass
+    return None
 
 (
     C_PART,
@@ -73,8 +94,9 @@ SYMBOL_LIB = "components"
     C_FP,
     C_STEP,
     C_PDF,
+    C_JLC,
     C_DEL,
-) = range(14)
+) = range(15)
 COL_NAMES = [
     "LCSC Part #",
     "Value",
@@ -89,6 +111,7 @@ COL_NAMES = [
     "FP",
     "STEP",
     "PDF",
+    "JLC",
     "",
 ]
 COL_VIEW_NAMES = [
@@ -105,6 +128,7 @@ COL_VIEW_NAMES = [
     "Footprint",
     "STEP",
     "PDF",
+    "JLC",
     "Delete",
 ]
 STEP_COLS = {
@@ -113,6 +137,7 @@ STEP_COLS = {
     "footprint": C_FP,
     "step": C_STEP,
     "pdf": C_PDF,
+    "jlc": C_JLC,
 }
 COL_STEPS = {v: k for k, v in STEP_COLS.items()}
 
@@ -126,6 +151,8 @@ METADATA_FIELDS = [
     ("Footprint Name", "fp_name_text", False),
     ("Package", "package", True),
     ("Key Attributes", "attributes", True),
+    ("Price", "price", False),
+    ("Stock", "stock", False),
 ]
 
 # PartState attr → table column index (for live cell updates on edit)
@@ -196,6 +223,7 @@ class PartState:
     footprint: St = St.PENDING
     step: St = St.PENDING
     pdf: St = St.PENDING
+    jlc: St = St.PENDING
     pdf_url: str = ""
     value: str = ""
     description: str = ""
@@ -204,6 +232,8 @@ class PartState:
     mfr: str = ""
     category: str = ""
     attributes: str = ""
+    price: str = ""
+    stock: str = ""
     logs: list = field(default_factory=list)
 
     def get(self, name):
@@ -270,6 +300,7 @@ class Worker(QThread):
         if not ok:
             return
         c.update(extra)
+        self._do_jlc(pid, c, cfg)
         if not c.get("fp_ok"):
             self._do_footprint(pid, c, cfg)
         if not c.get("sym_ok"):
@@ -298,6 +329,8 @@ class Worker(QThread):
             self._do_symbol(pid, c, cfg)
         elif step == "pdf":
             self._do_pdf(pid, c, cfg)
+        elif step == "jlc":
+            self._do_jlc(pid, c, cfg)
 
     # ── Steps ─────────────────────────────────────────────────────────────────
     def _do_validate(self, pid, cfg):
@@ -396,18 +429,22 @@ class Worker(QThread):
                 info = _cinfo.extract_component_info(pid)
 
             c["comp_info"] = info
+            category = info.get("category") or info.get("Category") or ""
+            lib_name = _lib_name(category, cfg.get("lib_prefix", ""))
             ds = c.get("ds_link") or c.get("lcsc_url") or ""
             fp = (c.get("fp_name") or "").replace(".pretty", "")
             create_symbol(
                 symbol_component_uuid=sym_uuids,
                 footprint_name=fp,
                 datasheet_link=ds,
-                library_name=SYMBOL_LIB,
+                library_name=lib_name,
                 symbol_path="symbol",
                 output_dir=cfg["output_dir"],
                 component_id=pid,
                 skip_existing=False,
                 component_info_data=info,
+                price=info.get("price") or None,
+                stock=info.get("stock") or None,
             )
 
             # Extract attributes for the GUI
@@ -425,10 +462,12 @@ class Worker(QThread):
                         or info.get("Manufacturer")
                         or ""
                     ),
-                    "category": (info.get("category") or info.get("Category") or ""),
+                    "category": category,
                     "attributes": (
                         info.get("attributes") or info.get("Key_Attributes") or ""
                     ),
+                    "price": info.get("price", ""),
+                    "stock": info.get("stock", ""),
                 },
             )
         except Exception as e:
@@ -465,6 +504,28 @@ class Worker(QThread):
         finally:
             logging.getLogger().removeHandler(h)
 
+    def _do_jlc(self, pid, c, cfg):
+        self.step_started.emit(pid, "jlc")
+        log = self._logfn(pid)
+        try:
+            log(f"Fetching LCSC data for {pid}…")
+            info = _fetch_lcsc_data(pid)
+            if not info:
+                raise RuntimeError("No data returned from LCSC API")
+            c["comp_info"] = {**(c.get("comp_info") or {}), **info}
+            log(f"LCSC OK — stock={info.get('stock','?')}  price={info.get('price','?')}")
+            self.step_done.emit(pid, "jlc", True, {
+                "category":   info.get("category", ""),
+                "mfr":        info.get("mfr", ""),
+                "package":    info.get("package", ""),
+                "attributes": info.get("attributes", ""),
+                "price":      info.get("price", ""),
+                "stock":      info.get("stock", ""),
+            })
+        except Exception as e:
+            log(f"JLC fetch error: {e}")
+            self.step_done.emit(pid, "jlc", False, {"error": str(e)})
+
     def _do_scrape(self, pid):
         self.log_line.emit(pid, f"Scraping LCSC data for {pid}…")
         data = _fetch_lcsc_data(pid)
@@ -485,14 +546,14 @@ class Worker(QThread):
 def _check_existing(pid, output_dir):
     lib = Path(output_dir)
     out = {}
-    sym_file = lib / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
+    sym_file = _find_sym_file(pid, lib / "symbol")
     fp_ref = ""
-    if sym_file.exists():
+    if sym_file is not None:
         txt = sym_file.read_text(encoding="utf-8", errors="replace")
         marker = f'(property "LCSC" "{pid}"'
-        if marker in txt:
-            out["sym_ok"] = True
-            idx = txt.find(marker)
+        out["sym_ok"] = True
+        idx = txt.find(marker)
+        if idx >= 0:
             block = txt[max(0, idx - 3000) : idx + 200]
             m = re.search(r'\(property "Footprint" "([^"]*)"', block)
             if m:
@@ -515,8 +576,8 @@ def _check_existing(pid, output_dir):
 
 def _update_symbol_datasheet(pid: str, output_dir: str, new_ds: str) -> bool:
     """Patch the Datasheet property for pid in the symbol library file."""
-    sym_file = Path(output_dir) / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
-    if not sym_file.exists():
+    sym_file = _find_sym_file(pid, Path(output_dir) / "symbol")
+    if sym_file is None:
         return False
     try:
         content = sym_file.read_text(encoding="utf-8", errors="replace")
@@ -567,7 +628,7 @@ def _fetch_lcsc_data(pid: str) -> dict:
         for attr, candidates in (
             ("value", ["productModel"]),
             ("mfr", ["brandNameEn", "manufacturerName"]),
-            ("category", ["catalogName", "parentCatalogName"]),
+            ("category", ["wmCatalogNameEn", "catalogName", "parentCatalogName"]),
             ("package", ["encapStandard", "packageType"]),
             ("description", ["productIntroEn", "productDescEn"]),
         ):
@@ -576,6 +637,18 @@ def _fetch_lcsc_data(pid: str) -> dict:
                 if val:
                     out[attr] = val
                     break
+
+        # Stock level
+        stock = product.get("stockNumber")
+        if stock is not None:
+            out["stock"] = str(stock)
+
+        # Price: cheapest quantity tier in USD
+        price_list = product.get("productPriceList") or []
+        if price_list:
+            usd = price_list[0].get("usdPrice")
+            if usd is not None:
+                out["price"] = f"${usd:.4f}"
 
         # Key Attributes: paramVOList entries marked isMain=True first, then the rest
         params = product.get("paramVOList") or []
@@ -598,8 +671,8 @@ def _update_symbol_property(
     pid: str, output_dir: str, prop_names, new_value: str
 ) -> bool:
     """Patch one or more KiCad symbol properties for pid (tries each name in order)."""
-    sym_file = Path(output_dir) / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
-    if not sym_file.exists():
+    sym_file = _find_sym_file(pid, Path(output_dir) / "symbol")
+    if sym_file is None:
         return False
     if isinstance(prop_names, str):
         prop_names = [prop_names]
@@ -786,9 +859,29 @@ def _parse_sym_file(sym_file: Path):
                 "mfr": props.get("Manufacturer", props.get("MFR", "")),
                 "category": props.get("Category", ""),
                 "attributes": props.get("Key_Attributes", ""),
+                "price": props.get("Price", ""),
+                "stock": props.get("Stock", ""),
             }
         )
     return results
+
+
+def _update_sym_lib_table(output_dir: str) -> None:
+    """Regenerate sym-lib-table from every .kicad_sym file in the symbol/ directory."""
+    sym_dir = Path(output_dir) / "symbol"
+    table_path = Path(output_dir) / "sym-lib-table"
+    sym_files = sorted(sym_dir.glob("*.kicad_sym")) if sym_dir.exists() else []
+    lines = ["(sym_lib_table", "\t(version 7)"]
+    for sf in sym_files:
+        name = sf.stem
+        uri = str(sf.resolve()).replace("\\", "/")
+        lines.append(f'\t(lib (name "{name}") (type "KiCad") (uri "{uri}") (options "") (descr ""))')
+    lines.append(")")
+    try:
+        table_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        logging.info(f"sym-lib-table: {len(sym_files)} lib(s) → {table_path}")
+    except OSError as e:
+        logging.warning(f"Could not write sym-lib-table: {e}")
 
 
 def _delete_from_lib(pid, output_dir):
@@ -796,8 +889,8 @@ def _delete_from_lib(pid, output_dir):
     errors = []
     fp_ref = ""
 
-    sym_file = lib / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
-    if sym_file.exists():
+    sym_file = _find_sym_file(pid, lib / "symbol")
+    if sym_file is not None:
         content = sym_file.read_text(encoding="utf-8", errors="replace")
         marker = f'(property "LCSC" "{pid}"'
         if marker in content:
@@ -816,6 +909,9 @@ def _delete_from_lib(pid, output_dir):
         if new != content:
             try:
                 sym_file.write_text(new, encoding="utf-8")
+                # Remove the file if it now contains no symbols
+                if not re.search(r'\(symbol "', new):
+                    sym_file.unlink(missing_ok=True)
             except OSError as e:
                 errors.append(f"Symbol file: {e}")
 
@@ -843,13 +939,53 @@ def _delete_from_lib(pid, output_dir):
 
 # ── Settings dialog ───────────────────────────────────────────────────────────
 class SettingsDialog(QDialog):
-    def __init__(self, parent, dl_step: bool, dl_pdf: bool, col_visible: list):
+    def __init__(
+        self,
+        parent,
+        dl_step: bool,
+        dl_pdf: bool,
+        col_visible: list,
+        lib_prefix: str = "",
+        jlcpcb_api_key: str = "",
+        output_dir: str = "",
+        recent_dirs: list = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(500)
 
         vbox = QVBoxLayout(self)
         vbox.setSpacing(10)
+
+        # Library Location
+        loc_group = QGroupBox("Library Location")
+        loc_hbox = QHBoxLayout(loc_group)
+        self._loc_combo = QComboBox()
+        self._loc_combo.setEditable(True)
+        self._loc_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        for d in (recent_dirs or []):
+            self._loc_combo.addItem(d)
+        if output_dir:
+            self._loc_combo.setCurrentText(output_dir)
+        elif recent_dirs:
+            self._loc_combo.setCurrentIndex(0)
+        loc_btn = QPushButton("Browse…")
+        loc_btn.clicked.connect(self._browse_loc)
+        loc_hbox.addWidget(self._loc_combo, 1)
+        loc_hbox.addWidget(loc_btn)
+        vbox.addWidget(loc_group)
+
+        # Library Options
+        lib_group = QGroupBox("Library Options")
+        lib_form = QFormLayout(lib_group)
+        self._prefix_edit = QLineEdit(lib_prefix)
+        self._prefix_edit.setPlaceholderText("e.g. MyProject  (leave blank for none)")
+        lib_form.addRow("Library Prefix:", self._prefix_edit)
+        self._api_key_edit = QLineEdit(jlcpcb_api_key)
+        self._api_key_edit.setPlaceholderText("Optional — for JLCPCB API stock/price")
+        self._api_key_edit.setEchoMode(QLineEdit.Password)
+        lib_form.addRow("JLCPCB API Key:", self._api_key_edit)
+        vbox.addWidget(lib_group)
 
         # Download Options
         dl_group = QGroupBox("Download Options")
@@ -892,6 +1028,33 @@ class SettingsDialog(QDialog):
     def col_visible(self):
         return [cb.isChecked() for cb in self._col_cbs]
 
+    def _browse_loc(self):
+        d = QFileDialog.getExistingDirectory(self, "Select Library Directory")
+        if d:
+            if self._loc_combo.findText(d) == -1:
+                self._loc_combo.insertItem(0, d)
+            self._loc_combo.setCurrentText(d)
+
+    @property
+    def output_dir(self):
+        return self._loc_combo.currentText().strip()
+
+    @property
+    def recent_dirs(self):
+        dirs = [self._loc_combo.itemText(i) for i in range(self._loc_combo.count())]
+        cur = self.output_dir
+        if cur and cur not in dirs:
+            dirs.insert(0, cur)
+        return list(dict.fromkeys(dirs))[:MAX_RECENT]
+
+    @property
+    def lib_prefix(self):
+        return self._prefix_edit.text().strip()
+
+    @property
+    def jlcpcb_api_key(self):
+        return self._api_key_edit.text().strip()
+
 
 # ── Main window ───────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
@@ -902,6 +1065,10 @@ class MainWindow(QMainWindow):
         self._parts: dict[str, PartState] = {}
         self._dl_step = True
         self._dl_pdf = False
+        self._lib_prefix = ""
+        self._jlcpcb_api_key = ""
+        self._output_dir = ""
+        self._recent_dirs: list = []
         # Info columns default hidden; status/identity columns visible
         self._col_visible = [True] * len(COL_NAMES)
         for _c in (C_MFR, C_CAT, C_FP_TEXT, C_PKG, C_ATTRS):
@@ -941,7 +1108,7 @@ class MainWindow(QMainWindow):
         # Table + log splitter
         spl = QSplitter(Qt.Vertical)
 
-        self._tbl = QTableWidget(0, 14)
+        self._tbl = QTableWidget(0, len(COL_NAMES))
         self._tbl.setHorizontalHeaderLabels(COL_NAMES)
         hdr = self._tbl.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
@@ -953,7 +1120,7 @@ class MainWindow(QMainWindow):
         self._tbl.setColumnWidth(C_FP_TEXT, 180)
         self._tbl.setColumnWidth(C_PKG, 80)
         self._tbl.setColumnWidth(C_ATTRS, 240)
-        for c in (C_VALID, C_SYM, C_FP, C_STEP, C_PDF, C_DEL):
+        for c in (C_VALID, C_SYM, C_FP, C_STEP, C_PDF, C_JLC, C_DEL):
             self._tbl.setColumnWidth(c, 28)
             hdr.setSectionResizeMode(c, QHeaderView.Fixed)
         self._tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -1027,18 +1194,6 @@ class MainWindow(QMainWindow):
         spl.setSizes([500, 210])
         vbox.addWidget(spl, 1)
 
-        # Library location row
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Library Location:"))
-        self._lib = QComboBox()
-        self._lib.setEditable(True)
-        self._lib.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        row2.addWidget(self._lib)
-        br = QPushButton("Browse…")
-        br.clicked.connect(self._browse)
-        row2.addWidget(br)
-        vbox.addLayout(row2)
-
         # Bottom buttons
         row4 = QHBoxLayout()
         load_btn = QPushButton("Load Library")
@@ -1050,18 +1205,36 @@ class MainWindow(QMainWindow):
         row4.addWidget(load_btn)
         row4.addWidget(settings_btn)
         row4.addStretch()
+        self._path_label = QLabel("")
+        self._path_label.setStyleSheet("color: #888; font-size: 11px;")
+        row4.addWidget(self._path_label)
+        row4.addStretch()
         row4.addWidget(exit_btn)
         vbox.addLayout(row4)
 
     # ── Settings ──────────────────────────────────────────────────────────────
     def _open_settings(self):
-        dlg = SettingsDialog(self, self._dl_step, self._dl_pdf, self._col_visible)
+        dlg = SettingsDialog(
+            self,
+            self._dl_step,
+            self._dl_pdf,
+            self._col_visible,
+            self._lib_prefix,
+            self._jlcpcb_api_key,
+            self._output_dir,
+            self._recent_dirs,
+        )
         if dlg.exec() == QDialog.Accepted:
             self._dl_step = dlg.dl_step
             self._dl_pdf = dlg.dl_pdf
             self._col_visible = dlg.col_visible
+            self._lib_prefix = dlg.lib_prefix
+            self._jlcpcb_api_key = dlg.jlcpcb_api_key
+            self._output_dir = dlg.output_dir
+            self._recent_dirs = dlg.recent_dirs
             for col, visible in enumerate(self._col_visible):
                 self._tbl.setColumnHidden(col, not visible)
+            self._update_path_label()
             self._save_cache()
 
     # ── Sorting ───────────────────────────────────────────────────────────────
@@ -1083,13 +1256,14 @@ class MainWindow(QMainWindow):
             return
         try:
             d = json.loads(CACHE_FILE.read_text())
-            for loc in d.get("recent_dirs", []):
-                if self._lib.findText(loc) == -1:
-                    self._lib.addItem(loc)
-            if self._lib.count():
-                self._lib.setCurrentIndex(0)
+            self._recent_dirs = d.get("recent_dirs", [])
+            if self._recent_dirs:
+                self._output_dir = self._recent_dirs[0]
+                self._update_path_label()
             self._dl_step = d.get("dl_step", True)
             self._dl_pdf = d.get("dl_pdf", False)
+            self._lib_prefix = d.get("lib_prefix", "")
+            self._jlcpcb_api_key = d.get("jlcpcb_api_key", "")
             saved_vis = list(d.get("col_visible", []))
             n = len(saved_vis)
             if n == 9:
@@ -1108,6 +1282,9 @@ class MainWindow(QMainWindow):
             elif n == 13:
                 # 13-col: 0-6 text, 7-11 status, 12 DEL — insert ATTRS(F) at 7
                 saved_vis = saved_vis[:7] + [False] + saved_vis[7:]
+            elif n == 14:
+                # 14-col: 0-12 text/status, 13 DEL — insert JLC(T) before DEL
+                saved_vis = saved_vis[:13] + [True] + saved_vis[13:]
             elif n < len(COL_NAMES):
                 saved_vis += [False] * (len(COL_NAMES) - n)
             if len(saved_vis) >= len(COL_NAMES):
@@ -1118,29 +1295,21 @@ class MainWindow(QMainWindow):
             pass
 
     def _save_cache(self):
-        cur = self._lib.currentText().strip()
-        dirs = [self._lib.itemText(i) for i in range(self._lib.count())]
-        if cur:
-            if cur in dirs:
-                dirs.remove(cur)
-            dirs.insert(0, cur)
-        dirs = dirs[:MAX_RECENT]
-        # Rebuild combo to reflect order
-        self._lib.blockSignals(True)
-        self._lib.clear()
-        for d in dirs:
-            self._lib.addItem(d)
-        if dirs:
-            self._lib.setCurrentIndex(0)
-        self._lib.blockSignals(False)
+        if self._output_dir:
+            if self._output_dir in self._recent_dirs:
+                self._recent_dirs.remove(self._output_dir)
+            self._recent_dirs.insert(0, self._output_dir)
+        self._recent_dirs = list(dict.fromkeys(self._recent_dirs))[:MAX_RECENT]
         try:
             CACHE_FILE.write_text(
                 json.dumps(
                     {
-                        "recent_dirs": dirs,
+                        "recent_dirs": self._recent_dirs,
                         "dl_step": self._dl_step,
                         "dl_pdf": self._dl_pdf,
                         "col_visible": self._col_visible,
+                        "lib_prefix": self._lib_prefix,
+                        "jlcpcb_api_key": self._jlcpcb_api_key,
                     },
                     indent=2,
                 )
@@ -1150,9 +1319,11 @@ class MainWindow(QMainWindow):
 
     def _cfg(self):
         return {
-            "output_dir": self._lib.currentText().strip(),
+            "output_dir": self._output_dir,
             "dl_step": self._dl_step,
             "dl_pdf": self._dl_pdf,
+            "lib_prefix": self._lib_prefix,
+            "jlcpcb_api_key": self._jlcpcb_api_key,
         }
 
     def _check_cfg(self):
@@ -1213,7 +1384,7 @@ class MainWindow(QMainWindow):
         self._set_text_cell(r, C_FP_TEXT, state.fp_name_text)
         self._set_text_cell(r, C_PKG, state.package)
         self._set_text_cell(r, C_ATTRS, state.attributes)
-        for step in ("valid", "symbol", "footprint", "step", "pdf"):
+        for step in ("valid", "symbol", "footprint", "step", "pdf", "jlc"):
             self._set_cell(pid, step, state.get(step))
 
         # Delete as a plain item (not a cell widget) so table sorting works correctly
@@ -1312,6 +1483,9 @@ class MainWindow(QMainWindow):
                     self._set_text_cell(r, C_FP_TEXT, fp_name)
 
         if step == "symbol" and ok:
+            cfg2 = self._cfg()
+            if cfg2["output_dir"]:
+                _update_sym_lib_table(cfg2["output_dir"])
             desc = extra.get("description", "")
             value = self._read_value_from_sym(pid)
             self._update_info_cells(pid, value=value, description=desc)
@@ -1327,6 +1501,42 @@ class MainWindow(QMainWindow):
                     if val:
                         setattr(s, attr, val)
                         self._set_text_cell(r, col, val)
+            for attr in ("price", "stock"):
+                val = extra.get(attr, "")
+                if val:
+                    setattr(s, attr, val)
+
+        if step == "jlc" and ok:
+            r = self._row(pid)
+            for attr, col, key in (
+                ("category", C_CAT, "category"),
+                ("mfr", C_MFR, "mfr"),
+                ("package", C_PKG, "package"),
+                ("attributes", C_ATTRS, "attributes"),
+            ):
+                val = extra.get(key, "")
+                if val:
+                    setattr(s, attr, val)
+                    if r >= 0:
+                        self._set_text_cell(r, col, val)
+            for attr in ("price", "stock"):
+                val = extra.get(attr, "")
+                if val:
+                    setattr(s, attr, val)
+            # Write updated fields back to the symbol file
+            cfg = self._cfg()
+            if cfg["output_dir"]:
+                for attr, prop in (
+                    ("category",   "Category"),
+                    ("mfr",        "Manufacturer"),
+                    ("package",    "Package"),
+                    ("attributes", "Key_Attributes"),
+                    ("price",      "Price"),
+                    ("stock",      "Stock"),
+                ):
+                    val = getattr(s, attr, "")
+                    if val:
+                        _update_symbol_property(pid, cfg["output_dir"], prop, val)
 
         self._refresh_detail(pid)
 
@@ -1347,8 +1557,8 @@ class MainWindow(QMainWindow):
         cfg = self._cfg()
         if not cfg["output_dir"]:
             return ""
-        sym_file = Path(cfg["output_dir"]) / "symbol" / f"{SYMBOL_LIB}.kicad_sym"
-        if not sym_file.exists():
+        sym_file = _find_sym_file(pid, Path(cfg["output_dir"]) / "symbol")
+        if sym_file is None:
             return ""
         try:
             for e in _parse_sym_file(sym_file):
@@ -1484,7 +1694,10 @@ class MainWindow(QMainWindow):
             return
         step = COL_STEPS[col]
         cur = s.get(step)
-        if cur not in (St.FAILED, St.PENDING):
+        # JLC can always be re-triggered (force refresh); others only when FAILED/PENDING
+        if step != "jlc" and cur not in (St.FAILED, St.PENDING):
+            return
+        if cur == St.PROCESSING:
             return
         cfg = self._check_cfg()
         if not cfg:
@@ -1510,19 +1723,15 @@ class MainWindow(QMainWindow):
             errs = _delete_from_lib(pid, cfg["output_dir"])
             if errs:
                 QMessageBox.warning(self, "Delete Errors", "\n".join(errs))
+            _update_sym_lib_table(cfg["output_dir"])
         r = self._row(pid)
         if r >= 0:
             self._tbl.removeRow(r)
         self._parts.pop(pid, None)
 
-    # ── Browse ────────────────────────────────────────────────────────────────
-    def _browse(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Library Directory")
-        if d:
-            if self._lib.findText(d) == -1:
-                self._lib.insertItem(0, d)
-            self._lib.setCurrentText(d)
-            self._save_cache()
+    def _update_path_label(self):
+        d = self._output_dir
+        self._path_label.setText(d if d else "")
 
     # ── Load Library ──────────────────────────────────────────────────────────
     def _load_library(self):
@@ -1556,6 +1765,9 @@ class MainWindow(QMainWindow):
                 s.value = e.get("value", "")
                 s.description = e.get("description", "")
                 s.attributes = e.get("attributes", "")
+                s.price = e.get("price", "")
+                s.stock = e.get("stock", "")
+                s.jlc = St.SUCCESS if (s.price or s.stock) else St.PENDING
                 s.valid = St.SUCCESS
                 s.symbol = St.SUCCESS
                 s.mfr = e.get("mfr", "")
@@ -1589,6 +1801,7 @@ class MainWindow(QMainWindow):
                 loaded += 1
         msg = f"Loaded {loaded} part(s)." if loaded else "No new parts found."
         self._log.append(msg)
+        _update_sym_lib_table(cfg["output_dir"])
 
     # ── Close ─────────────────────────────────────────────────────────────────
     def closeEvent(self, event):

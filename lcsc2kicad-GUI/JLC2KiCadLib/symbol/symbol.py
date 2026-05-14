@@ -33,6 +33,8 @@ def create_symbol(
     component_id,
     skip_existing,
     component_info_data=None,
+    price=None,
+    stock=None,
 ):
     class kicad_symbol:
         drawing = ""
@@ -164,7 +166,7 @@ def create_symbol(
     (property "LCSC" "{component_id}" (id 5) (at 0 0 0)
       (effects (font (size 1.27 1.27)) hide)
     ){description_property}
-    {get_type_values_properties(7 if description_property else 6, component_types_values)}{component_properties}{kicad_symbol.drawing}
+    {get_type_values_properties(7 if description_property else 6, component_types_values)}{component_properties}{_stock_price_properties(stock, price)}{kicad_symbol.drawing}
   )
 """
 
@@ -193,6 +195,25 @@ def create_symbol(
             output_dir,
             skip_existing,
         )
+
+
+def _stock_price_properties(stock, price) -> str:
+    parts = []
+    if stock is not None:
+        parts.append(
+            f'(property "Stock" "{stock}" (id 97) (at 0 0 0)\n'
+            f'      (effects (font (size 1.27 1.27)) hide)\n'
+            f'    )'
+        )
+    if price is not None:
+        parts.append(
+            f'(property "Price" "{price}" (id 98) (at 0 0 0)\n'
+            f'      (effects (font (size 1.27 1.27)) hide)\n'
+            f'    )'
+        )
+    if not parts:
+        return ""
+    return "\n    " + "\n    ".join(parts)
 
 
 def get_type_values_properties(start_index, component_types_values):

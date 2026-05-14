@@ -13,15 +13,8 @@ I am happy to accept PRs to improve it — vibe coded or otherwise — as long a
 
 ---
 
-## Next Up
-
-- Named categories
-
----
-
 ## Soon (months)
 
-- Auto-categorise parts based on LCSC data and a lookup table
 - Detect STEP files where X/Y/Z offsets are obviously wrong
   - Understand the root cause and fix automatically where possible
   - Reset offsets to zero where automatic correction is not possible
