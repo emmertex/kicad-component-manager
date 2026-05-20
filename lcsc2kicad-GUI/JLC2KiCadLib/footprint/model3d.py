@@ -2,10 +2,10 @@ import logging
 import os
 import re
 
-import requests
-from KicadModTree import *
 import helper
+import requests
 from helper import mil2mm
+from KicadModTree import *
 
 wrl_header = """#VRML V2.0 utf8
 #created by JLC2KiCad_lib using the JLCPCB library
@@ -38,18 +38,26 @@ def get_StepModel(
         logging.error("request error, no Step model found")
         return
 
-    ensure_footprint_lib_directories_exist(footprint_info)
-    filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.step"
-    with open(filename, "wb") as f:
-        f.write(response.content)
+    step_hash = helper.compute_hash(response.content)
+    existing_step_path = footprint_info.cache.get_step_path(step_hash)
 
-    logging.info(f"STEP model created at {filename}")
+    if existing_step_path and os.path.exists(existing_step_path):
+        logging.info(f"STEP model already exists at {existing_step_path}. Reusing.")
+        filename = existing_step_path
+    else:
+        ensure_footprint_lib_directories_exist(footprint_info)
+        filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.step"
+        with open(filename, "wb") as f:
+            f.write(response.content)
+        logging.info(f"STEP model created at {filename}")
+        footprint_info.cache.add_step_path(step_hash, filename)
 
+    reused_basename = os.path.basename(filename)
     if footprint_info.model_base_variable:
         if footprint_info.model_base_variable.startswith("$"):
-            path_name = f'"{footprint_info.model_base_variable}/{footprint_info.footprint_name}.step"'
+            path_name = f'"{footprint_info.model_base_variable}/{reused_basename}"'
         else:
-            path_name = f'"$({footprint_info.model_base_variable})/{footprint_info.footprint_name}.step"'
+            path_name = f'"$({footprint_info.model_base_variable})/{reused_basename}"'
     else:
         path_name = filename
 
@@ -177,17 +185,25 @@ Shape{{
 
         wrl_content += shape_str
 
-    ensure_footprint_lib_directories_exist(footprint_info)
+    wrl_hash = helper.compute_hash(wrl_content)
+    existing_wrl_path = footprint_info.cache.get_wrl_path(wrl_hash)
 
-    filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.wrl"
-    with open(filename, "w") as f:
-        f.write(wrl_content)
+    if existing_wrl_path and os.path.exists(existing_wrl_path):
+        logging.info(f"WRL model already exists at {existing_wrl_path}. Reusing.")
+        filename = existing_wrl_path
+    else:
+        ensure_footprint_lib_directories_exist(footprint_info)
+        filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.wrl"
+        with open(filename, "w") as f:
+            f.write(wrl_content)
+        footprint_info.cache.add_wrl_path(wrl_hash, filename)
 
+    reused_basename = os.path.basename(filename)
     if footprint_info.model_base_variable:
         if footprint_info.model_base_variable.startswith("$"):
-            path_name = f'"{footprint_info.model_base_variable}/{footprint_info.footprint_name}.wrl"'
+            path_name = f'"{footprint_info.model_base_variable}/{reused_basename}"'
         else:
-            path_name = f'"$({footprint_info.model_base_variable})/{footprint_info.footprint_name}.wrl"'
+            path_name = f'"$({footprint_info.model_base_variable})/{reused_basename}"'
     else:
         dirname = os.getcwd().replace("\\", "/").replace("/footprint", "")
         if os.path.isabs(filename):

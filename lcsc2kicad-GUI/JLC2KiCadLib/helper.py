@@ -1,7 +1,31 @@
+import hashlib
 import logging
 import sys
 
 import requests
+
+
+def set_logging(logging_level, log_file):
+    level = getattr(logging, logging_level.upper())
+    if log_file:
+        logging.basicConfig(
+            level=level,
+            filename="JLC2KiCadLib.log",
+            filemode="w",
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
+    else:
+        logging.basicConfig(
+            level=level,
+            format="%(levelname)s - %(message)s",
+        )
+
+
+def compute_hash(data):
+    """Compute SHA256 hash of data (bytes or string)."""
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
 
 
 def mil2mm(data):
