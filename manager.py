@@ -38,6 +38,12 @@ def _parse_args(argv):
         metavar="PATH",
         help="Set (and cache) the KiCad library location, then exit",
     )
+    parser.add_argument(
+        "--bom",
+        dest="bom",
+        metavar="FILE",
+        help="Open in BOM mode using parts from a PCB scan (JSON file)",
+    )
     return parser.parse_args(argv)
 
 
@@ -57,8 +63,9 @@ def main():
 
     logging.basicConfig(level=logging.INFO)
     app = QApplication(sys.argv)
-    win = MainWindow()
-    win.show()
+    win = MainWindow(bom_file=args.bom)
+    if not args.bom:
+        win.show()
     sys.exit(app.exec())
 
 

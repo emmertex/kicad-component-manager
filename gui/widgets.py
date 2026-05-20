@@ -1,3 +1,4 @@
+import csv
 import json
 import re
 from pathlib import Path
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
 from gui.models import (
     ATTR_COL,
     ATTR_PROP,
+    BOM_COL_NAMES,
     C_ATTRS,
     C_CAT,
     C_DEL,
@@ -51,6 +53,15 @@ from gui.models import (
     C_SYM,
     C_VALID,
     C_VALUE,
+    CB_DESC,
+    CB_PART,
+    CB_PRICE,
+    CB_QTY,
+    CB_REFS,
+    CB_STEP,
+    CB_STOCK,
+    CB_SUBTOTAL,
+    CB_VALUE,
     COL_NAMES,
     COL_STEPS,
     COL_VIEW_NAMES,
@@ -243,11 +254,469 @@ class BulkImportDialog(QDialog):
         return self._text.toPlainText().splitlines()
 
 
+class BOMWindow(QMainWindow):
+    def __init__(self, bom_data: list, output_dir: str = ""):
+        super().__init__()
+        self.setWindowTitle("KiCad BOM Manager")
+        self.resize(1100, 750)
+        self._bom_data = bom_data
+        self._output_dir = output_dir
+        self._parts: dict[str, PartState] = {}
+        self._worker = Worker()
+        self._worker.step_done.connect(self._on_done)
+        self._worker.scrape_done.connect(self._on_scrape_done)
+        self._worker.start()
+
+        self._build_ui()
+        self._populate_bom()
+
+    def _build_ui(self):
+        root = QWidget()
+        self.setCentralWidget(root)
+        vbox = QVBoxLayout(root)
+        vbox.setSpacing(6)
+        vbox.setContentsMargins(8, 8, 8, 8)
+
+        # Table + detail panel splitter
+        spl = QSplitter(Qt.Vertical)
+
+        self._tbl = QTableWidget(0, len(BOM_COL_NAMES))
+        self._tbl.setHorizontalHeaderLabels(BOM_COL_NAMES)
+        hdr = self._tbl.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        self._tbl.setColumnWidth(CB_REFS, 150)
+        self._tbl.setColumnWidth(CB_PART, 100)
+        self._tbl.setColumnWidth(CB_VALUE, 150)
+        self._tbl.setColumnWidth(CB_DESC, 300)
+        self._tbl.setColumnWidth(CB_QTY, 50)
+        self._tbl.setColumnWidth(CB_STOCK, 80)
+        self._tbl.setColumnWidth(CB_STEP, 50)
+        self._tbl.setColumnWidth(CB_PRICE, 80)
+        self._tbl.setColumnWidth(CB_SUBTOTAL, 100)
+        self._tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._tbl.currentCellChanged.connect(self._on_row_changed)
+        spl.addWidget(self._tbl)
+
+        # Bottom pane: detail panel
+        bottom = QWidget()
+        bh = QHBoxLayout(bottom)
+        bh.setContentsMargins(0, 0, 0, 0)
+
+        # Left: Detail Form
+        detail = QGroupBox("Component Details")
+        dv = QVBoxLayout(detail)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        form_widget = QWidget()
+        self._form = QFormLayout(form_widget)
+        self._meta_widgets: dict[str, QWidget] = {}
+        for label, attr, editable in METADATA_FIELDS:
+            if attr == "category":
+                edit = QComboBox()
+                edit.setEditable(True)
+                edit.addItems(FINAL_CATEGORIES)
+                edit.setCurrentText("")
+            else:
+                edit = QLineEdit()
+                edit.setReadOnly(not editable)
+                if not editable:
+                    edit.setStyleSheet("background: transparent; border: none;")
+            self._meta_widgets[attr] = edit
+            self._form.addRow(label + ":", edit)
+        scroll.setWidget(form_widget)
+        dv.addWidget(scroll)
+        bh.addWidget(detail, 3)
+
+        # Right: Actions
+        actions = QGroupBox("Actions")
+        av = QVBoxLayout(actions)
+
+        self._lcsc_input = QLineEdit()
+        self._lcsc_input.setPlaceholderText("Enter LCSC #")
+        av.addWidget(QLabel("Update LCSC Part Number:"))
+        av.addWidget(self._lcsc_input)
+
+        self._save_lcsc_btn = QPushButton("Save LCSC #")
+        self._save_lcsc_btn.clicked.connect(self._on_save_lcsc)
+        av.addWidget(self._save_lcsc_btn)
+
+        self._replace_btn = QPushButton("Replace Component")
+        self._replace_btn.setToolTip("Fetch full component data and replace in library")
+        self._replace_btn.clicked.connect(self._on_replace)
+        av.addWidget(self._replace_btn)
+
+        self._fetch_single_btn = QPushButton("Fetch Price/Stock")
+        self._fetch_single_btn.setToolTip(
+            "Fetch price and stock for this specific component"
+        )
+        self._fetch_single_btn.clicked.connect(self._on_fetch_single)
+        av.addWidget(self._fetch_single_btn)
+
+        av.addStretch()
+
+        self._total_label = QLabel("Total BOM Price: $0.00")
+        self._total_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        av.addWidget(self._total_label)
+
+        bh.addWidget(actions, 1)
+
+        spl.addWidget(bottom)
+        spl.setSizes([500, 250])
+        vbox.addWidget(spl, 1)
+
+        # Footer
+        footer = QHBoxLayout()
+        fetch_btn = QPushButton("Fetch Prices")
+        fetch_btn.clicked.connect(self._fetch_prices)
+        fetch_missing_btn = QPushButton("Fetch Missing Prices")
+        fetch_missing_btn.clicked.connect(self._fetch_missing_prices)
+        export_btn = QPushButton("Export CSV…")
+        export_btn.clicked.connect(self._export_csv)
+        exit_btn = QPushButton("Close")
+        exit_btn.clicked.connect(self.close)
+
+        footer.addWidget(fetch_btn)
+        footer.addWidget(fetch_missing_btn)
+        footer.addWidget(export_btn)
+        footer.addStretch()
+        footer.addWidget(exit_btn)
+        vbox.addLayout(footer)
+
+    def _populate_bom(self):
+        # Group by (LCSC Part #, Value)
+        # If LCSC is missing, use (Value, Footprint)
+        groups = {}
+        for p in self._bom_data:
+            key = (p["lcsc"], p["val"]) if p["lcsc"] else (None, p["val"], p["fp"])
+            if key not in groups:
+                groups[key] = {
+                    "refs": [],
+                    "val": p["val"],
+                    "lcsc": p["lcsc"],
+                    "fp": p["fp"],
+                }
+            groups[key]["refs"].append(p["ref"])
+
+        self._tbl.setRowCount(0)
+        for key, data in groups.items():
+            r = self._tbl.rowCount()
+            self._tbl.insertRow(r)
+
+            refs = sorted(data["refs"])
+            qty = len(refs)
+            pid = data["lcsc"] or ""
+
+            self._tbl.setItem(r, CB_REFS, QTableWidgetItem(", ".join(refs)))
+            self._tbl.setItem(r, CB_PART, QTableWidgetItem(pid))
+            self._tbl.setItem(r, CB_VALUE, QTableWidgetItem(data["val"]))
+            self._tbl.setItem(r, CB_QTY, QTableWidgetItem(str(qty)))
+
+            # Initial placeholder for others
+            for c in (CB_DESC, CB_STOCK, CB_STEP, CB_PRICE, CB_SUBTOTAL):
+                self._tbl.setItem(r, c, QTableWidgetItem(""))
+
+            # If we have a PID, try to load from library
+            if pid:
+                self._load_part_from_lib(pid, r)
+
+        self._update_total()
+
+    def _load_part_from_lib(self, pid, row):
+        if not self._output_dir:
+            return
+        sym_file = _find_sym_file(pid, Path(self._output_dir) / "symbol")
+        if sym_file:
+            try:
+                for e in _parse_sym_file(sym_file):
+                    if e.get("lcsc") == pid:
+                        self._tbl.item(row, CB_DESC).setText(e.get("description", ""))
+                        self._tbl.item(row, CB_STOCK).setText(e.get("stock", ""))
+                        self._tbl.item(row, CB_PRICE).setText(e.get("price", ""))
+
+                        # Check STEP
+                        fp_ref = e.get("footprint", "")
+                        if fp_ref and ":" in fp_ref:
+                            ln, fn = fp_ref.split(":", 1)
+                            step_p = (
+                                Path(self._output_dir)
+                                / ln
+                                / "packages3d"
+                                / f"{fn}.step"
+                            )
+                            self._tbl.item(row, CB_STEP).setText(
+                                "✓" if step_p.exists() else ""
+                            )
+
+                        self._update_row_subtotal(row)
+
+                        # Update PartState for detail panel
+                        state = PartState(pid)
+                        state.value = e.get("value", "")
+                        state.description = e.get("description", "")
+                        state.mfr = e.get("mfr", "")
+                        state.category = e.get("category", "")
+                        state.package = e.get("package", "")
+                        state.attributes = e.get("attributes", "")
+                        state.price = e.get("price", "")
+                        state.stock = e.get("stock", "")
+                        self._parts[pid] = state
+                        break
+            except Exception:
+                pass
+
+    def _update_row_subtotal(self, row):
+        try:
+            qty = int(self._tbl.item(row, CB_QTY).text())
+            price_str = self._tbl.item(row, CB_PRICE).text()
+            price_match = re.search(r"(\d+\.?\d*)", price_str)
+            if price_match:
+                price = float(price_match.group(1))
+                subtotal = qty * price
+                self._tbl.item(row, CB_SUBTOTAL).setText(f"${subtotal:.2f}")
+        except (ValueError, TypeError):
+            pass
+
+    def _update_total(self):
+        total = 0.0
+        for r in range(self._tbl.rowCount()):
+            sub_str = self._tbl.item(r, CB_SUBTOTAL).text()
+            match = re.search(r"(\d+\.?\d*)", sub_str)
+            if match:
+                total += float(match.group(1))
+        self._total_label.setText(f"Total BOM Price: ${total:.2f}")
+
+    def _on_row_changed(self, row, _col, _pr, _pc):
+        if row < 0:
+            return
+        pid = self._tbl.item(row, CB_PART).text()
+        self._lcsc_input.setText(pid)
+
+        for w in self._meta_widgets.values():
+            if isinstance(w, QComboBox):
+                w.setCurrentText("")
+            else:
+                w.setText("")
+
+        if pid in self._parts:
+            s = self._parts[pid]
+            for _label, attr, _editable in METADATA_FIELDS:
+                w = self._meta_widgets[attr]
+                val = getattr(s, attr, "")
+                if isinstance(w, QComboBox):
+                    w.setCurrentText(val)
+                else:
+                    w.setText(val)
+
+    def _fetch_prices(self):
+        if not self._output_dir:
+            QMessageBox.warning(
+                self,
+                "No Library",
+                "Please set Library Location in main window settings.",
+            )
+            return
+
+        pids = []
+        for r in range(self._tbl.rowCount()):
+            pid = self._tbl.item(r, CB_PART).text()
+            if pid:
+                pids.append(pid)
+
+        if not pids:
+            return
+        self._run_jlc_fetch(pids)
+
+    def _fetch_missing_prices(self):
+        if not self._output_dir:
+            QMessageBox.warning(
+                self,
+                "No Library",
+                "Please set Library Location in main window settings.",
+            )
+            return
+
+        pids = []
+        for r in range(self._tbl.rowCount()):
+            pid = self._tbl.item(r, CB_PART).text()
+            price = self._tbl.item(r, CB_PRICE).text()
+            if pid and not price:
+                pids.append(pid)
+
+        if not pids:
+            QMessageBox.information(
+                self, "Fetch Missing", "No parts missing price info."
+            )
+            return
+
+        self._run_jlc_fetch(pids)
+
+    def _on_fetch_single(self):
+        row = self._tbl.currentRow()
+        if row < 0:
+            return
+        pid = self._tbl.item(row, CB_PART).text()
+        if not pid:
+            QMessageBox.warning(self, "No Part", "Selected row has no LCSC Part #.")
+            return
+        if not self._output_dir:
+            QMessageBox.warning(
+                self, "No Library", "Set library location in main window."
+            )
+            return
+
+        self._run_jlc_fetch([pid])
+
+    def _run_jlc_fetch(self, pids):
+        cfg = {"output_dir": self._output_dir, "jlcpcb_api_key": ""}
+        if CACHE_FILE.exists():
+            try:
+                d = json.loads(CACHE_FILE.read_text())
+                cfg["jlcpcb_api_key"] = d.get("jlcpcb_api_key", "")
+            except Exception:
+                pass
+
+        for pid in pids:
+            self._worker.retry(pid, "jlc", cfg)
+
+        if len(pids) == 1:
+            QMessageBox.information(
+                self, "Fetching", f"Fetching price for {pids[0]}..."
+            )
+        else:
+            QMessageBox.information(
+                self, "Fetching", f"Started fetching data for {len(pids)} part(s)."
+            )
+
+    def _on_done(self, pid, step, ok, extra):
+        if not ok:
+            return
+
+        # Update library if JLC data was fetched
+        if step == "jlc":
+            if pid in self._parts:
+                s = self._parts[pid]
+                s.price = extra.get("price", "")
+                s.stock = extra.get("stock", "")
+                if self._output_dir:
+                    for attr, prop in (("price", "Price"), ("stock", "Stock")):
+                        val = getattr(s, attr, "")
+                        if val:
+                            _update_symbol_property(pid, self._output_dir, prop, val)
+
+        # Update table columns if it's a component-related step
+        for r in range(self._tbl.rowCount()):
+            if self._tbl.item(r, CB_PART).text() == pid:
+                if step == "jlc":
+                    self._tbl.item(r, CB_STOCK).setText(extra.get("stock", ""))
+                    self._tbl.item(r, CB_PRICE).setText(extra.get("price", ""))
+                    self._update_row_subtotal(r)
+                    self._update_total()
+
+                # After any successful step (like 'symbol' or 'footprint' from a Replace),
+                # try to reload the metadata from the library to update all columns.
+                self._load_part_from_lib(pid, r)
+                break
+
+        if (
+            self._tbl.currentRow() >= 0
+            and self._tbl.item(self._tbl.currentRow(), CB_PART).text() == pid
+        ):
+            self._on_row_changed(self._tbl.currentRow(), 0, 0, 0)
+
+    def _on_scrape_done(self, pid, data):
+        pass
+
+    def _on_save_lcsc(self):
+        row = self._tbl.currentRow()
+        if row < 0:
+            return
+        new_pid = normalize_pid(self._lcsc_input.text().strip())
+        if not new_pid:
+            return
+
+        old_pid = self._tbl.item(row, CB_PART).text()
+        if new_pid == old_pid:
+            return
+
+        self._tbl.item(row, CB_PART).setText(new_pid)
+        self._load_part_from_lib(new_pid, row)
+        self._update_total()
+
+    def _on_replace(self):
+        row = self._tbl.currentRow()
+        if row < 0:
+            return
+        pid = normalize_pid(self._lcsc_input.text().strip())
+        if not pid:
+            QMessageBox.warning(self, "Invalid", "Enter a valid LCSC part number.")
+            return
+
+        if not self._output_dir:
+            QMessageBox.warning(
+                self, "No Library", "Set library location in main window."
+            )
+            return
+
+        cfg = {
+            "output_dir": self._output_dir,
+            "dl_step": True,
+            "dl_pdf": False,
+            "lib_prefix": "",
+            "jlcpcb_api_key": "",
+        }
+        if CACHE_FILE.exists():
+            try:
+                d = json.loads(CACHE_FILE.read_text())
+                cfg.update(
+                    {
+                        "dl_step": d.get("dl_step", True),
+                        "dl_pdf": d.get("dl_pdf", False),
+                        "lib_prefix": d.get("lib_prefix", ""),
+                        "jlcpcb_api_key": d.get("jlcpcb_api_key", ""),
+                    }
+                )
+            except Exception:
+                pass
+
+        ensure_libraries(cfg["output_dir"], cfg["lib_prefix"])
+        self._worker.process(pid, cfg)
+
+    def _export_csv(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export BOM", "", "CSV Files (*.csv)"
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(BOM_COL_NAMES)
+                for r in range(self._tbl.rowCount()):
+                    row_data = [
+                        self._tbl.item(r, c).text()
+                        for c in range(self._tbl.columnCount())
+                    ]
+                    writer.writerow(row_data)
+            QMessageBox.information(self, "Exported", f"BOM exported to {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Could not export CSV: {e}")
+
+    def closeEvent(self, event):
+        self._worker.stop()
+        self._worker.wait(2000)
+        super().closeEvent(event)
+
+
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, bom_file=None):
         super().__init__()
         self.setWindowTitle("LCSC to KiCad Converter")
         self.resize(1050, 720)
+        self._bom_file = bom_file
         self._parts: dict[str, PartState] = {}
         self._dl_step = True
         self._dl_pdf = False
@@ -274,6 +743,24 @@ class MainWindow(QMainWindow):
         # Pre-create the fixed library set so KiCad sees every category up front.
         if self._output_dir:
             ensure_libraries(self._output_dir, self._lib_prefix)
+
+        if self._bom_file:
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(100, self._open_bom_window)
+
+    def _open_bom_window(self):
+        if not self._bom_file:
+            return
+        try:
+            p = Path(self._bom_file)
+            if not p.exists():
+                return
+            data = json.loads(p.read_text())
+            self._bom_win = BOMWindow(data, self._output_dir)
+            self._bom_win.show()
+        except Exception as e:
+            QMessageBox.warning(self, "BOM Error", f"Failed to load BOM data: {e}")
 
     def _build_ui(self):
         root = QWidget()

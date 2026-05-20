@@ -23,6 +23,31 @@ from PySide6.QtWidgets import QTableWidgetItem
     C_DEL,
 ) = range(15)
 
+# ── BOM Column Indices ───────────────────────────────────────────────────────
+(
+    CB_REFS,
+    CB_PART,
+    CB_VALUE,
+    CB_DESC,
+    CB_QTY,
+    CB_STOCK,
+    CB_STEP,
+    CB_PRICE,
+    CB_SUBTOTAL,
+) = range(9)
+
+BOM_COL_NAMES = [
+    "Designator(s)",
+    "LCSC Part #",
+    "Value",
+    "Description",
+    "Qty",
+    "Stock",
+    "STEP",
+    "Price",
+    "Sub Total",
+]
+
 COL_NAMES = [
     "LCSC Part #",
     "Value",
