@@ -1,3 +1,9 @@
+## v2.0 - KiCad Library Manager
+
+### v2.0.0 - New project name, with big goals.
+
+- Clean up and organise code more, with intention of support of more suppliers.
+
 ## v1.3 - KiCAD Library Managenent
 
 ### v1.3.0 - Improve everything behing the scenes, preparation for v2.0!
