@@ -1,4 +1,19 @@
-### v1.1 - KiCAD Library Managenent
+## v1.3 - KiCAD Library Managenent
+
+### v1.3.0
+** Features **
+- Code Cleanup
+  - Remove dead code
+  - Break main GUI application into workers and smaller parts
+- Deduplication of Footprints and STEP Models
+  - Check if footprints are identical, if so, then reuse the existing footprint 
+  - Check if STEP models are identical, if so, then reuse the existing model
+- 3D Model Offsets
+  - Some models have unusual offsets, often minor, some times severy hundred mm wrong. 
+  - Detect an incorrect offset by it being more that 50% of the model's length on that particular axis
+  - Almost all EasyEDA models have 0,0,0 offsets, so when known to be erroneous, adjust to 0,0,0
+  - Tested on several known bad model imports, and works well.
+  - This cannot be 100%, but will be a huge improvement over the default behavior
 
 ### v1.2.0
 
