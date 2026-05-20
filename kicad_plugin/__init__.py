@@ -1,16 +1,17 @@
 """
-LCSC to KiCad Converter — KiCad Action Plugin
+KiCad Component Manager — Library Management Tool
 
 Supports two installation layouts:
 
   Repo-symlink (install_plugin.sh):
     scripting/plugins/lcsc2kicad/  →  kicad_plugin/
-    gui2.py lives one level up at the repo root.
+    manager.py lives one level up at the repo root.
 
   PCM self-contained (build_pcm.sh / KiCad "Install from File"):
     3rdparty/plugins/com_emmertex_lcsc2kicad/
-    gui2.py is bundled alongside this file.
+    manager.py is bundled alongside this file.
     On first run the plugin offers to install dependencies into a local venv.
+"""
 
 Note on toolbar placement: pcbnew.ActionPlugin toolbar buttons only appear
 in the PCB editor — this is a KiCad API limitation.  The plugin is
@@ -37,8 +38,8 @@ _VBIN = "Scripts" if _WIN else "bin"
 _VPY  = "python.exe" if _WIN else "python"
 
 _GUI_CANDIDATES = [
-    _PLUGIN_DIR / "gui2.py",           # PCM self-contained install
-    _PLUGIN_DIR.parent / "gui2.py",    # Repo symlink install
+    _PLUGIN_DIR / "manager.py",           # PCM self-contained install
+    _PLUGIN_DIR.parent / "manager.py",    # Repo symlink install
 ]
 
 
@@ -121,12 +122,12 @@ def _create_venv(venv_dir: Path, requirements: Path, python: str = "") -> tuple[
 
 # ── Action plugin ─────────────────────────────────────────────────────────────
 
-class LCSCtoKiCadAction(pcbnew.ActionPlugin):
+class KiCadComponentManagerAction(pcbnew.ActionPlugin):
     def defaults(self):
-        self.name = "LCSC to KiCad Converter"
+        self.name = "KiCad Component Manager"
         self.category = "Library Management"
         self.description = (
-            "Download LCSC/JLCPCB parts and add them to your KiCad libraries"
+            "Download and manage KiCad components from multiple sources"
         )
         self.show_toolbar_button = True
         if _ICON.exists():
@@ -147,8 +148,8 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
             try:
                 import wx
                 wx.MessageBox(
-                    f"LCSC to KiCad plugin error:\n\n{tb}",
-                    "LCSC to KiCad — Error",
+                    f"KiCad Component Manager error:\n\n{tb}",
+                    "KiCad Component Manager — Error",
                     wx.OK | wx.ICON_ERROR,
                 )
             except Exception as wx_err:
@@ -157,15 +158,15 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
     def _run(self):
         import wx
 
-        # ── Locate gui2.py ────────────────────────────────────────────────────
+        # ── Locate manager.py ────────────────────────────────────────────────────
         gui = _find_gui()
         if gui is None:
             msg = (
-                "gui2.py not found.\n\nExpected locations:\n" +
+                "manager.py not found.\n\nExpected locations:\n" +
                 "\n".join(f"  {p}" for p in _GUI_CANDIDATES)
             )
             _log(msg)
-            wx.MessageBox(msg, "LCSC to KiCad — Launch Error", wx.OK | wx.ICON_ERROR)
+            wx.MessageBox(msg, "KiCad Component Manager — Launch Error", wx.OK | wx.ICON_ERROR)
             return
 
         _log(f"Using gui: {gui}")
@@ -196,16 +197,16 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
                     "Install it with:  pip install PySide6"
                 )
                 _log(msg)
-                wx.MessageBox(msg, "LCSC to KiCad — Missing Dependency",
+                wx.MessageBox(msg, "KiCad Component Manager — Missing Dependency",
                               wx.OK | wx.ICON_ERROR)
                 return
 
             answer = wx.MessageBox(
-                "LCSC to KiCad Converter needs Python dependencies that are\n"
+                "KiCad Component Manager needs Python dependencies that are\n"
                 "not currently installed (PySide6, requests, lxml, etc.).\n\n"
                 f"A virtual environment will be created at:\n  {gui.parent / 'venv'}\n\n"
                 "This is a one-time setup (~1–2 minutes).\n\nInstall now?",
-                "LCSC to KiCad — First-time Setup",
+                "KiCad Component Manager — First-time Setup",
                 wx.YES_NO | wx.ICON_QUESTION,
             )
             if answer != wx.YES:
@@ -221,16 +222,16 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
             if not ok:
                 wx.MessageBox(
                     f"Dependency installation failed:\n\n{err}",
-                    "LCSC to KiCad — Setup Failed",
+                    "KiCad Component Manager — Setup Failed",
                     wx.OK | wx.ICON_ERROR,
                 )
                 return
 
             python = str(venv_dir / _VBIN / _VPY)
 
-        # ── Launch gui2.py ────────────────────────────────────────────────────
+        # ── Launch manager.py ────────────────────────────────────────────────────
         _log(f"Launching: {python} {gui}")
-        gui_log = _LOG_FILE.parent / ".lcsc2kicad_gui.log"
+        gui_log = _LOG_FILE.parent / ".kicad_component_manager_gui.log"
         if _WIN:
             detach_kwargs = {
                 "creationflags": subprocess.DETACHED_PROCESS
@@ -251,15 +252,15 @@ class LCSCtoKiCadAction(pcbnew.ActionPlugin):
         except Exception as e:
             _log(f"Popen failed: {e}")
             wx.MessageBox(
-                f"Failed to launch LCSC to KiCad Converter.\n\n"
+                f"Failed to launch KiCad Component Manager.\n\n"
                 f"Python:  {python}\n"
                 f"Script:  {gui}\n\n"
                 f"Error: {e}",
-                "LCSC to KiCad — Launch Error",
+                "KiCad Component Manager — Launch Error",
                 wx.OK | wx.ICON_ERROR,
             )
 
 
 _log(f"Plugin module loading from {_PLUGIN_DIR}")
-LCSCtoKiCadAction().register()
+KiCadComponentManagerAction().register()
 _log("Plugin registered OK")

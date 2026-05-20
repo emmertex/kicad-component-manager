@@ -2,11 +2,11 @@ import json
 import logging
 import os
 
-import helper
 import requests
-from cache import Cache
 from KicadModTree import *
 
+from .. import helper
+from ..cache import Cache
 from .footprint_handlers import handlers, mil2mm
 
 

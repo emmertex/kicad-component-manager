@@ -2,10 +2,11 @@ import logging
 import os
 import re
 
-import helper
 import requests
-from helper import mil2mm
 from KicadModTree import *
+
+from .. import helper
+from ..helper import mil2mm
 
 wrl_header = """#VRML V2.0 utf8
 #created by JLC2KiCad_lib using the JLCPCB library

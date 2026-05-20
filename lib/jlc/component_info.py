@@ -1,8 +1,9 @@
 import logging
 import re
 
-import helper
 from bs4 import BeautifulSoup
+
+from . import helper
 
 
 def extract_component_info(component_id):

@@ -1,9 +1,9 @@
 {
   "$schema": "https://go.kicad.org/pcm/schemas/v2",
-  "name": "KiCad Library Manager",
-  "description": "Manage custom libraries, and automatically download LCSC parts.",
-  "description_full": "GUI tool to search LCSC part numbers, download symbols, footprints, STEP models, and PDF datasheets, and add them directly to your KiCad library. Tracks download status per component and supports retry of individual steps.  Manage the library and its metadata in tool.",
-  "identifier": "com.github.emmertex.lcsc2kicad-GUI",
+  "name": "KiCad Component Manager",
+  "description": "Download and manage KiCad components from multiple sources",
+  "description_full": "A library management tool for KiCad that allows downloading component data, symbols, footprints, and 3D models from sources like LCSC and JLCPCB. It automates library organization and datasheet management.",
+  "identifier": "com.github.emmertex.kicad-component-manager",
   "type": "plugin",
   "author": {
     "name": "Andrew Frahn",
@@ -14,7 +14,7 @@
   },
   "license": "MIT",
   "resources": {
-    "homepage": "https://github.com/emmertex/lcsc2kicad-GUI/"
+    "homepage": "https://github.com/emmertex/kicad-component-manager/"
   },
   "versions": [
     {

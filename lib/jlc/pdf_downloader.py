@@ -8,7 +8,8 @@ from pathlib import Path
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import requests
-import helper
+
+from . import helper
 
 
 def _fetch_external_pdf(url, referer, timeout=60):
@@ -37,23 +38,40 @@ def _curl_get(url, referer, timeout=60):
     os.close(tmp_fd)
     try:
         cmd = [
-            "curl", "--silent", "--location", "--http2",
-            "--max-time", str(timeout),
-            "--output", tmp_path,
-            "--header", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "--header", "Accept-Language: en-AU,en;q=0.9",
-            "--header", "Accept-Encoding: gzip, deflate, br, zstd",
-            "--header", f"Referer: {referer}",
-            "--header", "Sec-Fetch-Dest: document",
-            "--header", "Sec-Fetch-Mode: navigate",
-            "--header", "Sec-Fetch-Site: cross-site",
-            "--header", "Upgrade-Insecure-Requests: 1",
-            "--user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0",
-            "--write-out", "%{http_code}",
+            "curl",
+            "--silent",
+            "--location",
+            "--http2",
+            "--max-time",
+            str(timeout),
+            "--output",
+            tmp_path,
+            "--header",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "--header",
+            "Accept-Language: en-AU,en;q=0.9",
+            "--header",
+            "Accept-Encoding: gzip, deflate, br, zstd",
+            "--header",
+            f"Referer: {referer}",
+            "--header",
+            "Sec-Fetch-Dest: document",
+            "--header",
+            "Sec-Fetch-Mode: navigate",
+            "--header",
+            "Sec-Fetch-Site: cross-site",
+            "--header",
+            "Upgrade-Insecure-Requests: 1",
+            "--user-agent",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0",
+            "--write-out",
+            "%{http_code}",
             url,
         ]
         logging.info(f"Attempting external PDF download: {url}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout + 5
+        )
         http_code = result.stdout.strip()
         if http_code == "200":
             with open(tmp_path, "rb") as f:
@@ -131,7 +149,10 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
         )
         logging.info(f"Found {len(all_pdf_links)} PDF links: {all_pdf_links}")
 
-        if datasheet_match and "lcsc.com" not in urlparse(datasheet_match.group(1)).netloc:
+        if (
+            datasheet_match
+            and "lcsc.com" not in urlparse(datasheet_match.group(1)).netloc
+        ):
             pdf_url = datasheet_match.group(1)
             logging.info(f"Found datasheet URL: {pdf_url}")
             if "lcsc.com" not in urlparse(pdf_url).netloc:
@@ -141,8 +162,14 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
                 pdf_headers["Accept"] = "application/pdf,application/octet-stream,*/*"
                 pdf_headers["Referer"] = product_url
                 logging.info(f"Downloading PDF from LCSC: {pdf_url}")
-                r = session.get(pdf_url, headers=pdf_headers, timeout=30, allow_redirects=True)
-                pdf_content = r.content if r.status_code == 200 and r.content.startswith(b"%PDF") else None
+                r = session.get(
+                    pdf_url, headers=pdf_headers, timeout=30, allow_redirects=True
+                )
+                pdf_content = (
+                    r.content
+                    if r.status_code == 200 and r.content.startswith(b"%PDF")
+                    else None
+                )
 
         else:
             # Try the LCSC iframe approach - visit the datasheet page first to get cookies
@@ -178,7 +205,9 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
 
             # Extract iframe URL from HTML content
             lcsc_content = lcsc_response.text
-            iframe_pattern = r'<iframe[^>]*src=["\']([^"\']*\.pdf(?:[?#][^"\']*)?)["\'][^>]*>'
+            iframe_pattern = (
+                r'<iframe[^>]*src=["\']([^"\']*\.pdf(?:[?#][^"\']*)?)["\'][^>]*>'
+            )
             iframe_match = re.search(iframe_pattern, lcsc_content, re.IGNORECASE)
 
             # Debug: log all iframe tags found
@@ -224,8 +253,14 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
                 pdf_headers["Accept"] = "application/pdf,application/octet-stream,*/*"
                 pdf_headers["Referer"] = lcsc_url
                 logging.info(f"Downloading PDF from LCSC: {pdf_url}")
-                r = session.get(pdf_url, headers=pdf_headers, timeout=30, allow_redirects=True)
-                pdf_content = r.content if r.status_code == 200 and r.content.startswith(b"%PDF") else None
+                r = session.get(
+                    pdf_url, headers=pdf_headers, timeout=30, allow_redirects=True
+                )
+                pdf_content = (
+                    r.content
+                    if r.status_code == 200 and r.content.startswith(b"%PDF")
+                    else None
+                )
 
         if pdf_content is not None:
             # Save the PDF file

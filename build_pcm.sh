@@ -5,7 +5,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 _META_VERSION="$(python3 -c "import json; print(json.load(open('$REPO/kicad_plugin/metadata.json'))['versions'][0]['version'])")"
 VERSION="${1:-$_META_VERSION}"
-OUT="$REPO/lcsc2kicad-$VERSION.zip"
+OUT="$REPO/kicad-component-manager-$VERSION.zip"
 STAGING="$(mktemp -d)"
 PLUGIN_STAGING="$STAGING/plugins"
 
@@ -17,28 +17,23 @@ cp "$REPO/kicad_plugin/__init__.py" "$PLUGIN_STAGING/"
 [ -f "$REPO/kicad_plugin/icon.png" ] && cp "$REPO/kicad_plugin/icon.png" "$PLUGIN_STAGING/"
 
 # ── GUI and backend ────────────────────────────────────────────────────────── #
-cp "$REPO/gui2.py" "$PLUGIN_STAGING/"
+cp "$REPO/manager.py" "$PLUGIN_STAGING/"
 cp "$REPO/requirements.txt" "$PLUGIN_STAGING/"
 
-BACKEND_SRC="$REPO/lcsc2kicad-GUI/JLC2KiCadLib"
-BACKEND_DST="$PLUGIN_STAGING/lcsc2kicad-GUI/JLC2KiCadLib"
-
-if [ ! -d "$BACKEND_SRC" ]; then
-    echo "ERROR: Backend not found at $BACKEND_SRC" >&2
-    rm -rf "$STAGING"
-    exit 1
-fi
-
-# Copy backend, excluding cache and junk files
-mkdir -p "$BACKEND_DST"
-rsync -a --exclude='__pycache__' --exclude='*.pyc' --exclude='.DS_Store' \
-    "$BACKEND_SRC/" "$BACKEND_DST/" 2>/dev/null \
-|| { find "$BACKEND_SRC" -type f ! -name '*.pyc' ! -name '.DS_Store' | while read -r f; do
-       rel="${f#$BACKEND_SRC/}"
-       dir="$BACKEND_DST/$(dirname "$rel")"
-       mkdir -p "$dir"
-       cp "$f" "$dir/"
-     done; }
+# Copy gui and lib folders, excluding cache and junk files
+for dir in gui lib; do
+    SRC="$REPO/$dir"
+    DST="$PLUGIN_STAGING/$dir"
+    mkdir -p "$DST"
+    rsync -a --exclude='__pycache__' --exclude='*.pyc' --exclude='.DS_Store' \
+        "$SRC/" "$DST/" 2>/dev/null \
+    || { find "$SRC" -type f ! -name '*.pyc' ! -name '.DS_Store' | while read -r f; do
+           rel="${f#$SRC/}"
+           target="$DST/$(dirname "$rel")"
+           mkdir -p "$target"
+           cp "$f" "$target/"
+         done; }
+done
 
 # ── PCM metadata ───────────────────────────────────────────────────────────── #
 # Stamp the version into a copy of metadata.json

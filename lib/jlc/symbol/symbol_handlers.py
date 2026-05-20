@@ -1,6 +1,7 @@
 import logging
 import re
-from helper import mil2mm
+
+from ..helper import mil2mm
 
 RELATIVE_OFFSET = 0.254
 ABSOLUTE_OFFSET_X = 101.6
@@ -166,7 +167,7 @@ def h_PL(data, translation, kicad_symbol):
         polypts = []
         for i, _ in enumerate(pathString[::2]):
             polypts.append(
-                f"(xy {mil2mm(float(pathString[2*i]) - translation[0])} {- mil2mm(float(pathString[2*i+1]) - translation[-1])})"
+                f"(xy {mil2mm(float(pathString[2 * i]) - translation[0])} {-mil2mm(float(pathString[2 * i + 1]) - translation[-1])})"
             )
         polystr = "\n          ".join(polypts)
 
@@ -192,7 +193,7 @@ def h_PG(data, translation, kicad_symbol):
         polypts = []
         for i, _ in enumerate(pathString[::2]):
             polypts.append(
-                f"(xy {mil2mm(float(pathString[2*i]) - translation[0])} {- mil2mm(float(pathString[2*i+1]) - translation[1])})"
+                f"(xy {mil2mm(float(pathString[2 * i]) - translation[0])} {-mil2mm(float(pathString[2 * i + 1]) - translation[1])})"
             )
         polypts.append(polypts[0])
         polystr = "\n          ".join(polypts)
@@ -226,7 +227,7 @@ def h_A(data, translation, kicad_symbol):
     Arc handler
     """
 
-    from math import sqrt, acos, pi, sin, cos
+    from math import acos, cos, pi, sin, sqrt
 
     def getCenterParam(match):
         # Funciton reversed from https://easyeda.com/editor/6.5.5/js/editorPCB.min.js

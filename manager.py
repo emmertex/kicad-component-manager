@@ -1,15 +1,9 @@
-"""gui2.py — LCSC to KiCad Library Converter v2 (Entry Point)"""
+"""KiCad Component Manager — Library Management Tool"""
 
 import argparse
 import logging
 import sys
 from pathlib import Path
-
-# ── Backend path setup ────────────────────────────────────────────────────────
-# Ensure JLC2KiCadLib is in the path for all modules
-_LIB = Path(__file__).parent / "lcsc2kicad-GUI" / "JLC2KiCadLib"
-if str(_LIB) not in sys.path:
-    sys.path.insert(0, str(_LIB))
 
 # Also add the project root to sys.path so we can import 'gui' and 'lib'
 _ROOT = Path(__file__).parent
@@ -19,8 +13,8 @@ if str(_ROOT) not in sys.path:
 
 def _parse_args(argv):
     parser = argparse.ArgumentParser(
-        prog="gui2.py",
-        description="LCSC to KiCad library converter. Run with no arguments for "
+        prog="manager.py",
+        description="KiCad Component Manager. Run with no arguments for "
         "the GUI, or use -i/-I to import from the terminal.",
     )
     parser.add_argument(

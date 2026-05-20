@@ -2,16 +2,15 @@
 Importable module for fetching and updating component stock/price data in KiCad libraries.
 
 Usage from an external application:
-    import sys
-    sys.path.insert(0, "/path/to/lcsc2kicad-GUI/lcsc2kicad-GUI/JLC2KiCadLib")
-    from component_data import refresh_stock_price, update_symbol_stock_price, fetch_stock_price
+    from lib.jlc.component_data import refresh_stock_price, update_symbol_stock_price, fetch_stock_price
 """
+
 import logging
 import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from jlcpcb_client import JLCPCBAPIError, get_jlcpcb_client
+from .jlcpcb_client import JLCPCBAPIError, get_jlcpcb_client
 
 logger = logging.getLogger(__name__)
 

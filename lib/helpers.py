@@ -5,17 +5,7 @@ from pathlib import Path
 
 from lib.categories import FINAL_CATEGORIES, resolve_category
 
-# Try to find JLC2KiCadLib
-_LIB = Path(__file__).parent.parent / "lcsc2kicad-GUI" / "JLC2KiCadLib"
-if _LIB.exists() and str(_LIB) not in sys.path:
-    sys.path.insert(0, str(_LIB))
-
-try:
-    import helper
-    import pdf_downloader
-except ImportError:
-    # If not found yet, we might be running from a different context
-    pass
+from .jlc import helper, pdf_downloader
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 # Minimum bytes for a valid PDF.

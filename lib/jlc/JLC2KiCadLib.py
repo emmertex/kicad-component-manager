@@ -1,14 +1,13 @@
-import sys
 import argparse
 import json
 import logging
+import sys
 
 import requests
-import component_info
-import pdf_downloader
-import helper
-from footprint.footprint import create_footprint, get_footprint_info
-from symbol.symbol import create_symbol
+
+from . import component_info, helper, pdf_downloader
+from .footprint.footprint import create_footprint, get_footprint_info
+from .symbol.symbol import create_symbol
 
 __version__ = "1.0.32"
 

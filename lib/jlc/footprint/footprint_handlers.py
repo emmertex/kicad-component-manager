@@ -3,9 +3,9 @@ import logging
 import re
 from math import acos, pi, pow
 
-from helper import mil2mm
 from KicadModTree import *
 
+from ..helper import mil2mm
 from .model3d import get_StepModel, get_WrlModel
 
 __all__ = [

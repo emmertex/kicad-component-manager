@@ -3,13 +3,7 @@ import traceback
 from pathlib import Path
 from queue import Queue
 
-# Backend imports
-import component_info as _cinfo
-import helper
-import pdf_downloader
-from footprint.footprint import create_footprint
 from PySide6.QtCore import QThread, Signal
-from symbol.symbol import create_symbol
 
 from gui.models import St
 from lib.api import fetch_component_data
@@ -19,6 +13,12 @@ from lib.helpers import (
     _lib_name,
     _update_symbol_datasheet,
 )
+
+# Backend imports
+from lib.jlc import component_info as _cinfo
+from lib.jlc import helper, pdf_downloader
+from lib.jlc.footprint.footprint import create_footprint
+from lib.jlc.symbol.symbol import create_symbol
 
 
 # ── Log capture ───────────────────────────────────────────────────────────────

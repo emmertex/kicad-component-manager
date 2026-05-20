@@ -1,8 +1,8 @@
-# KiCad Library Manager with LCSC Importer
+# KiCad Component Manager
 
 A GUI for downloading and managing LCSC components in your KiCAD Library.  
 
-![LCSC to KiCad Converter](images/Screenshot_20260509_231744.png)
+![KiCad Component Manager](images/Screenshot_20260509_231744.png)
 
 ---
 
@@ -71,9 +71,9 @@ your-library/
 ### Standalone (no KiCad integration)
 
 ```bash
-git clone https://github.com/emmertex/lcsc2kicad-GUI
-cd lcsc2kicad-GUI
-./run.sh          # creates venv, installs deps, launches gui2.py
+git clone https://github.com/emmertex/kicad-component-manager
+cd kicad-component-manager
+./run.sh          # creates venv, installs deps, launches manager.py
 ```
 
 On Windows (without WSL):
@@ -82,21 +82,21 @@ On Windows (without WSL):
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-python gui2.py
+python manager.py
 ```
 
 ---
 
 ## KiCad Plugin Installation
 
-The plugin registers an action under **Tools → External Plugins → LCSC to KiCad Converter**.  
-It launches `gui2.py` as a separate process using the repo's `venv` Python, so KiCad's own Python environment needs no extra packages.
+The plugin registers an action under **Tools → External Plugins → KiCad Component Manager**.  
+It launches `manager.py` as a separate process using the repo's `venv` Python, so KiCad's own Python environment needs no extra packages.
 
 ### Option 1 — Symlink install (recommended for repo users)
 
 ```bash
-git clone https://github.com/emmertex/lcsc2kicad-GUI
-cd lcsc2kicad-GUI
+git clone https://github.com/emmertex/kicad-component-manager
+cd kicad-component-manager
 ./run.sh            # set up venv and dependencies
 ./install_plugin.sh # symlink kicad_plugin/ into KiCad's scripting/plugins/
 ```
@@ -112,7 +112,7 @@ rm ~/.local/share/kicad/10.0/scripting/plugins/lcsc2kicad
 
 ### Option 2 — Install from File (PCM zip)
 
-The PCM zip is self-contained: it bundles `gui2.py` and the full backend.
+The PCM zip is self-contained: it bundles `manager.py` and the full backend.
 Python dependencies (PySide6, requests, etc.) are handled automatically on first use.
 
 1. Download or build the PCM zip:
@@ -121,7 +121,7 @@ Python dependencies (PySide6, requests, etc.) are handled automatically on first
    ```
 2. In KiCad: **Plugin and Content Manager → Install from File** → select the zip.
 3. Restart KiCad.
-4. Click **LCSC to KiCad Converter** in the toolbar or via **Tools → External Plugins**.
+4. Click **KiCad Component Manager** in the toolbar or via **Tools → External Plugins**.
    - If PySide6 is already installed system-wide, the GUI launches immediately.
    - If not, a one-time setup dialog offers to create a local venv and install all
      dependencies automatically (~1–2 minutes). After that, subsequent launches are instant.

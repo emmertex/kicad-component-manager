@@ -9,31 +9,8 @@ from typing import Any, Dict, Optional
 import requests
 from bs4 import BeautifulSoup
 
-_LIB = Path(__file__).parent.parent / "lcsc2kicad-GUI" / "JLC2KiCadLib"
-if _LIB.exists() and str(_LIB) not in sys.path:
-    sys.path.insert(0, str(_LIB))
-
-try:
-    import helper
-    from jlcpcb_client import JLCPCBAPIClient, JLCPCBAPIError
-except ImportError:
-    # Fallback if jlcpcb_client not in path (though we added it above)
-    class JLCPCBAPIError(Exception):
-        pass
-
-    class JLCPCBAPIClient:
-        def __init__(self, api_key=None):
-            self.api_key = api_key
-
-        def get_component(self, pid):
-            return None
-
-        def get_inventory(self, pid):
-            return None
-
-        def get_pricing(self, pid):
-            return []
-
+from .jlc import helper
+from .jlc.jlcpcb_client import JLCPCBAPIClient, JLCPCBAPIError
 
 logger = logging.getLogger(__name__)
 

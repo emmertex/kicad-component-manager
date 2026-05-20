@@ -4,10 +4,9 @@ import os
 import re
 import tempfile
 
-import component_info
-import helper
 import requests
 
+from .. import component_info, helper
 from .symbol_handlers import handlers
 
 template_lib_header = f"""\
