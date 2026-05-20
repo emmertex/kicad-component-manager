@@ -131,10 +131,6 @@ Built upon:
 - [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti — LCSC component handling approach (MIT)
 - [lcsc2kicad-GUI](https://github.com/milutintech/lcsc2kicad-GUI) by milutintech — original GUI foundation (MIT)
 
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for planned features and priorities.
-
 
 ## Changelog
 

@@ -1,6 +1,7 @@
 ## v1.3 - KiCAD Library Managenent
 
-### v1.3.0
+### v1.3.0 - Improve everything behing the scenes, preparation for v2.0!
+
 ** Features **
 - Code Cleanup
   - Remove dead code
@@ -14,8 +15,16 @@
   - Almost all EasyEDA models have 0,0,0 offsets, so when known to be erroneous, adjust to 0,0,0
   - Tested on several known bad model imports, and works well.
   - This cannot be 100%, but will be a huge improvement over the default behavior
+- Categories Overhaul
+  - Fixed, curated set of ~32 KiCAD categories instead of one library per raw LCSC category
+  - Any LCSC category is mapped to the closest matching bucket, with an Uncategorized fallback
+  - Off-PCB / non-KiCAD categories (cleaning, off-board PSUs, finished units, accessories) are dropped
+  - Raw LCSC category is still stored as the symbol's Category property (granular search, reparseable without the API)
+  - All category libraries and the sym-lib-table are created up front on startup / when the library location changes, so KiCAD does not need a restart for a new category
+  - Category dropdown is now the fixed curated list (no longer a live JLCPCB fetch)
+  - New Setting "Allow editing category" - relabels the Category metadata only, does not move the symbol to another library (off by default)
 
-### v1.2.0
+### v1.2.0 - JLCPCB API implemented, and add Categories support.
 
 - JLCPCB API
   - Categories from JLC
@@ -38,7 +47,7 @@
 #### v1.1.1
 - Fix Attribute Loading
 
-#### v1.1.0
+#### v1.1.0 - Library Management
 - Improved Library Table
   - Turn on an off columns in settings
   - Drag to resize

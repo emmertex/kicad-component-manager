@@ -1,4 +1,5 @@
 """JLCPCB Components API client."""
+
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -20,10 +21,12 @@ class JLCPCBAPIClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "KiCad-LCSC-Manager/1.0",
-            "Accept": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "KiCad-LCSC-Manager/1.0",
+                "Accept": "application/json",
+            }
+        )
         if self.api_key:
             self.session.headers["Authorization"] = f"Bearer {self.api_key}"
         self.last_request_time = 0.0
@@ -89,7 +92,9 @@ class JLCPCBAPIClient:
     def get_inventory(self, component_code: str) -> Optional[int]:
         """Get current stock level."""
         try:
-            response = self._make_request("GET", f"component/{component_code}/inventory")
+            response = self._make_request(
+                "GET", f"component/{component_code}/inventory"
+            )
             if response.get("success"):
                 return (response.get("data") or {}).get("stock")
             return None
@@ -101,12 +106,21 @@ class JLCPCBAPIClient:
     def get_categories(self) -> List[Dict[str, Any]]:
         """Get full category tree."""
         try:
-            response = self._make_request("GET", "categories")
+            # Official endpoint is often category/all or categories
+            # Trying category/all as per common JLC API docs
+            response = self._make_request("GET", "category/all")
             if response.get("success"):
                 return response.get("data", [])
             return []
         except JLCPCBAPIError:
-            raise
+            # Fallback to 'categories' if 'category/all' fails
+            try:
+                response = self._make_request("GET", "categories")
+                if response.get("success"):
+                    return response.get("data", [])
+            except:
+                pass
+            return []
         except Exception as e:
             raise JLCPCBAPIError(f"Failed to fetch categories: {e}")
 
@@ -128,7 +142,7 @@ class JLCPCBAPIClient:
             params["category"] = category
         if in_stock:
             params["inStock"] = "true"
-        return self._make_request("GET", "search", params=params)
+        return self._make_request("GET", "component/search", params=params)
 
 
 _jlcpcb_client: Optional[JLCPCBAPIClient] = None

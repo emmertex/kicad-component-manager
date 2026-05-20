@@ -62,6 +62,7 @@ from gui.models import (
     _SortItem,
 )
 from gui.worker import Worker
+from lib.categories import FINAL_CATEGORIES
 from lib.helpers import (
     PDF_MIN_BYTES,
     _delete_from_lib,
@@ -69,6 +70,7 @@ from lib.helpers import (
     _parse_sym_file,
     _update_sym_lib_table,
     _update_symbol_property,
+    ensure_libraries,
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -88,6 +90,7 @@ class SettingsDialog(QDialog):
         jlcpcb_api_key: str = "",
         output_dir: str = "",
         recent_dirs: list = None,
+        allow_edit_category: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -124,6 +127,12 @@ class SettingsDialog(QDialog):
         self._api_key_edit.setPlaceholderText("Optional — for JLCPCB API stock/price")
         self._api_key_edit.setEchoMode(QLineEdit.Password)
         lib_form.addRow("JLCPCB API Key:", self._api_key_edit)
+        self._edit_cat_cb = QCheckBox(
+            "Allow editing category (relabels metadata only — does not move the "
+            "symbol to another library)"
+        )
+        self._edit_cat_cb.setChecked(allow_edit_category)
+        lib_form.addRow("", self._edit_cat_cb)
         vbox.addWidget(lib_group)
 
         # Download Options
@@ -194,6 +203,10 @@ class SettingsDialog(QDialog):
     def jlcpcb_api_key(self):
         return self._api_key_edit.text().strip()
 
+    @property
+    def allow_edit_category(self):
+        return self._edit_cat_cb.isChecked()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -207,6 +220,7 @@ class MainWindow(QMainWindow):
         self._jlcpcb_api_key = ""
         self._output_dir = ""
         self._recent_dirs: list = []
+        self._allow_edit_category = False
         # Info columns default hidden; status/identity columns visible
         self._col_visible = [True] * len(COL_NAMES)
         for _c in (C_MFR, C_CAT, C_FP_TEXT, C_PKG, C_ATTRS):
@@ -221,6 +235,10 @@ class MainWindow(QMainWindow):
         self._worker.start()
         self._build_ui()
         self._load_cache()
+        self._apply_category_editable()
+        # Pre-create the fixed library set so KiCad sees every category up front.
+        if self._output_dir:
+            ensure_libraries(self._output_dir, self._lib_prefix)
 
     def _build_ui(self):
         root = QWidget()
@@ -307,19 +325,33 @@ class MainWindow(QMainWindow):
         self._form.setContentsMargins(0, 0, 4, 0)
         self._form.setSpacing(3)
         self._form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self._meta_edits: dict[str, QLineEdit] = {}
+        self._meta_widgets: dict[str, QWidget] = {}
         for label, attr, editable in METADATA_FIELDS:
-            edit = QLineEdit()
-            edit.setReadOnly(not editable)
-            if not editable:
-                edit.setStyleSheet(
-                    "QLineEdit { background: transparent; border: 1px solid transparent; }"
-                )
-            if editable:
-                edit.editingFinished.connect(
-                    lambda a=attr, e=edit: self._on_meta_edit(a, e)
-                )
-            self._meta_edits[attr] = edit
+            if attr == "category":
+                edit = QComboBox()
+                edit.setEditable(True)
+                edit.addItems(FINAL_CATEGORIES)
+                edit.setCurrentText("")
+                if editable:
+                    # Both editing finished (manual typing) and current index changed
+                    edit.lineEdit().editingFinished.connect(
+                        lambda a=attr, e=edit: self._on_meta_edit(a, e)
+                    )
+                    edit.currentIndexChanged.connect(
+                        lambda i, a=attr, e=edit: self._on_meta_edit(a, e)
+                    )
+            else:
+                edit = QLineEdit()
+                edit.setReadOnly(not editable)
+                if not editable:
+                    edit.setStyleSheet(
+                        "QLineEdit { background: transparent; border: 1px solid transparent; }"
+                    )
+                if editable:
+                    edit.editingFinished.connect(
+                        lambda a=attr, e=edit: self._on_meta_edit(a, e)
+                    )
+            self._meta_widgets[attr] = edit
             self._form.addRow(label + ":", edit)
         scroll.setWidget(form_widget)
         dv.addWidget(scroll, 1)
@@ -359,6 +391,7 @@ class MainWindow(QMainWindow):
             self._jlcpcb_api_key,
             self._output_dir,
             self._recent_dirs,
+            self._allow_edit_category,
         )
         if dlg.exec() == QDialog.Accepted:
             self._dl_step = dlg.dl_step
@@ -368,10 +401,15 @@ class MainWindow(QMainWindow):
             self._jlcpcb_api_key = dlg.jlcpcb_api_key
             self._output_dir = dlg.output_dir
             self._recent_dirs = dlg.recent_dirs
+            self._allow_edit_category = dlg.allow_edit_category
             for col, visible in enumerate(self._col_visible):
                 self._tbl.setColumnHidden(col, not visible)
+            self._apply_category_editable()
             self._update_path_label()
             self._save_cache()
+            # (Re)create the fixed library set for the chosen location.
+            if self._output_dir:
+                ensure_libraries(self._output_dir, self._lib_prefix)
 
     def _on_header_clicked(self, col):
         if col == C_DEL:
@@ -400,6 +438,7 @@ class MainWindow(QMainWindow):
             self._dl_pdf = d.get("dl_pdf", False)
             self._lib_prefix = d.get("lib_prefix", "")
             self._jlcpcb_api_key = d.get("jlcpcb_api_key", "")
+            self._allow_edit_category = d.get("allow_edit_category", False)
 
             saved_vis = list(d.get("col_visible", []))
 
@@ -453,6 +492,7 @@ class MainWindow(QMainWindow):
                         "col_visible": self._col_visible,
                         "lib_prefix": self._lib_prefix,
                         "jlcpcb_api_key": self._jlcpcb_api_key,
+                        "allow_edit_category": self._allow_edit_category,
                     },
                     indent=2,
                 )
@@ -718,8 +758,11 @@ class MainWindow(QMainWindow):
         self._lcsc_btn.setEnabled(False)
         self._pdf_btn.setEnabled(False)
         self._scrape_btn.setEnabled(False)
-        for edit in self._meta_edits.values():
-            edit.setText("")
+        for w in self._meta_widgets.values():
+            if isinstance(w, QComboBox):
+                w.setCurrentText("")
+            else:
+                w.setText("")
         if row < 0:
             return
         it = self._tbl.item(row, C_PART)
@@ -740,7 +783,12 @@ class MainWindow(QMainWindow):
                 pdf_p.exists() and pdf_p.stat().st_size >= PDF_MIN_BYTES
             )
         for _label, attr, _editable in METADATA_FIELDS:
-            self._meta_edits[attr].setText(getattr(s, attr, ""))
+            w = self._meta_widgets[attr]
+            val = getattr(s, attr, "")
+            if isinstance(w, QComboBox):
+                w.setCurrentText(val)
+            else:
+                w.setText(val)
 
     def _selected_pid(self):
         it = self._tbl.item(self._tbl.currentRow(), C_PART)
@@ -792,14 +840,33 @@ class MainWindow(QMainWindow):
                 _update_symbol_property(pid, cfg["output_dir"], prop, val)
         self._refresh_detail(pid)
 
-    def _on_meta_edit(self, attr, edit: QLineEdit):
+    def _apply_category_editable(self):
+        """Gate the category field on the 'Allow editing category' setting.
+
+        When enabled, the field relabels the symbol's Category property in place
+        only — it never moves the symbol to a different library file."""
+        w = self._meta_widgets.get("category")
+        if isinstance(w, QComboBox):
+            w.setEnabled(self._allow_edit_category)
+            w.setToolTip(
+                "Relabels the Category property only — does not move the symbol "
+                "to another library."
+                if self._allow_edit_category
+                else "Enable 'Allow editing category' in Settings to change this."
+            )
+
+    def _on_meta_edit(self, attr, w):
+        if attr == "category" and not self._allow_edit_category:
+            return
         pid = self._selected_pid()
         if not pid:
             return
         s = self._parts.get(pid)
         if not s:
             return
-        val = edit.text()
+        val = w.currentText() if isinstance(w, QComboBox) else w.text()
+        if getattr(s, attr) == val:
+            return
         setattr(s, attr, val)
         col = ATTR_COL.get(attr)
         if col is not None:
