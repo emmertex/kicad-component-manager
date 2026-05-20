@@ -33,23 +33,6 @@ LCSC_HEADERS = {
 }
 
 
-def set_logging(logging_level, logging_file):
-    LOGGING_FILE = "JLC2KiCad_lib.log"
-
-    if logging_file:
-        logging.basicConfig(
-            filename=LOGGING_FILE, format="%(asctime)s - %(levelname)s - %(message)s"
-        )
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging_level)
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
-    root_logger.addHandler(handler)
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    handler.setFormatter(formatter)
-
-
 # Global session for EasyEDA API requests
 _easyeda_session = None
 
@@ -107,3 +90,10 @@ def get_lcsc_session():
         except requests.RequestException as e:
             logging.warning(f"Could not establish LCSC session cookie: {e}")
     return _lcsc_session
+
+
+def reset_sessions():
+    """Reset global sessions."""
+    global _easyeda_session, _lcsc_session
+    _easyeda_session = None
+    _lcsc_session = None

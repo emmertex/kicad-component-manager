@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 
 import component_info
 import helper
@@ -202,14 +203,14 @@ def _stock_price_properties(stock, price) -> str:
     if stock is not None:
         parts.append(
             f'(property "Stock" "{stock}" (id 97) (at 0 0 0)\n'
-            f'      (effects (font (size 1.27 1.27)) hide)\n'
-            f'    )'
+            f"      (effects (font (size 1.27 1.27)) hide)\n"
+            f"    )"
         )
     if price is not None:
         parts.append(
             f'(property "Price" "{price}" (id 98) (at 0 0 0)\n'
-            f'      (effects (font (size 1.27 1.27)) hide)\n'
-            f'    )'
+            f"      (effects (font (size 1.27 1.27)) hide)\n"
+            f"    )"
         )
     if not parts:
         return ""
@@ -267,40 +268,46 @@ def update_library(
     if not already present in library,
     the component will be added at the end
     """
+    filepath = f"{output_dir}/{symbol_path}/{library_name}.kicad_sym"
 
-    with open(
-        f"{output_dir}/{symbol_path}/{library_name}.kicad_sym", "rb+"
-    ) as lib_file:
-        pattern = rf'  \(symbol "{component_title}" (\n|.)*?\n  \)'
-        file_content = lib_file.read().decode()
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        file_content = f.read()
 
-        if f'symbol "{component_title}"' in file_content:
-            if skip_existing:
-                logging.info(
-                    f"component {component_title} already in symbols library, skipping"
-                )
-                return
-            # use regex to find the old component template in the file and replace it with the new one
+    pattern = rf'  \(symbol "{re.escape(component_title)}" (\n|.)*?\n  \)'
+
+    if f'symbol "{component_title}"' in file_content:
+        if skip_existing:
             logging.info(
-                f"found component already in {library_name}, updating {library_name}"
+                f"component {component_title} already in symbols library, skipping"
             )
-            sub = re.sub(
-                pattern=pattern,
-                repl=template_lib_component,
-                string=file_content,
-                flags=re.DOTALL,
-                count=1,
-            )
-            lib_file.seek(0)
-            # delete the file content and rewrite it
-            lib_file.truncate()
-            lib_file.write(sub.encode())
-        else:
-            # Insert before the library's closing ) using a depth-aware search
-            # so we always find the actual library footer, not a ) inside a symbol.
-            # see https://github.com/TousstNicolas/JLC2KiCad_lib/issues/46
-            close_pos = _find_lib_close(file_content)
-            new_content = file_content[:close_pos] + template_lib_component + template_lib_footer
-            lib_file.seek(0)
-            lib_file.truncate()
-            lib_file.write(new_content.encode())
+            return
+        # use regex to find the old component template in the file and replace it with the new one
+        logging.info(
+            f"found component already in {library_name}, updating {library_name}"
+        )
+        new_content = re.sub(
+            pattern=pattern,
+            repl=template_lib_component,
+            string=file_content,
+            flags=re.DOTALL,
+            count=1,
+        )
+    else:
+        # Insert before the library's closing ) using a depth-aware search
+        # so we always find the actual library footer, not a ) inside a symbol.
+        # see https://github.com/TousstNicolas/JLC2KiCad_lib/issues/46
+        close_pos = _find_lib_close(file_content)
+        new_content = (
+            file_content[:close_pos] + template_lib_component + template_lib_footer
+        )
+
+    # Atomic-ish write using a temporary file
+    fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(filepath), text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
+            temp_file.write(new_content)
+        os.replace(temp_path, filepath)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
