@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -62,6 +63,7 @@ from gui.models import (
     _SortItem,
 )
 from gui.worker import Worker
+from lib.bulk import normalize_pid, parse_parts
 from lib.categories import FINAL_CATEGORIES
 from lib.helpers import (
     PDF_MIN_BYTES,
@@ -127,10 +129,7 @@ class SettingsDialog(QDialog):
         self._api_key_edit.setPlaceholderText("Optional — for JLCPCB API stock/price")
         self._api_key_edit.setEchoMode(QLineEdit.Password)
         lib_form.addRow("JLCPCB API Key:", self._api_key_edit)
-        self._edit_cat_cb = QCheckBox(
-            "Allow editing category (relabels metadata only — does not move the "
-            "symbol to another library)"
-        )
+        self._edit_cat_cb = QCheckBox("Allow editing category (relabels metadata only)")
         self._edit_cat_cb.setChecked(allow_edit_category)
         lib_form.addRow("", self._edit_cat_cb)
         vbox.addWidget(lib_group)
@@ -208,6 +207,42 @@ class SettingsDialog(QDialog):
         return self._edit_cat_cb.isChecked()
 
 
+class BulkImportDialog(QDialog):
+    """Collect a list of part numbers by paste or from a file."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Bulk Import")
+        self.setMinimumSize(360, 320)
+        v = QVBoxLayout(self)
+        v.addWidget(QLabel("Paste part numbers (one per line), or load from a file:"))
+        self._text = QPlainTextEdit()
+        self._text.setPlaceholderText("C1234\nC2040\nC25804")
+        v.addWidget(self._text, 1)
+        file_btn = QPushButton("Select File…")
+        file_btn.clicked.connect(self._load_file)
+        v.addWidget(file_btn)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        v.addWidget(btns)
+
+    def _load_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Parts File", "", "Text Files (*.txt *.csv);;All Files (*)"
+        )
+        if path:
+            try:
+                self._text.setPlainText(
+                    Path(path).read_text(encoding="utf-8", errors="replace")
+                )
+            except OSError as e:
+                QMessageBox.warning(self, "Error", f"Could not read file: {e}")
+
+    def tokens(self):
+        return self._text.toPlainText().splitlines()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -258,6 +293,10 @@ class MainWindow(QMainWindow):
         btn.setFixedWidth(80)
         btn.clicked.connect(self._add_part)
         row.addWidget(btn)
+        bulk_btn = QPushButton("Bulk Import")
+        bulk_btn.setFixedWidth(100)
+        bulk_btn.clicked.connect(self._bulk_import)
+        row.addWidget(bulk_btn)
         vbox.addLayout(row)
 
         # Table + log splitter
@@ -520,12 +559,18 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _norm(s):
-        p = s.strip().upper()
-        if p.isdigit():
-            return f"C{p}"
-        if p.startswith("C") and p[1:].isdigit():
-            return p
-        return None
+        return normalize_pid(s)
+
+    def _import_pid(self, pid, cfg):
+        """Queue a single (already-normalised) part for import. No-op if known."""
+        if pid in self._parts:
+            return False
+        state = PartState(
+            pid, pdf_url=f"https://www.lcsc.com/product-detail/{pid}.html"
+        )
+        self._insert_row(pid, state)
+        self._worker.process(pid, cfg)
+        return True
 
     def _add_part(self):
         pid = self._norm(self._inp.text())
@@ -542,11 +587,30 @@ class MainWindow(QMainWindow):
                 self._tbl.setCurrentCell(r, 0)
             return
         self._save_cache()
-        state = PartState(
-            pid, pdf_url=f"https://www.lcsc.com/product-detail/{pid}.html"
-        )
-        self._insert_row(pid, state)
-        self._worker.process(pid, cfg)
+        self._import_pid(pid, cfg)
+
+    def _bulk_import(self):
+        cfg = self._check_cfg()
+        if not cfg:
+            return
+        dlg = BulkImportDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        pids, invalid = parse_parts(dlg.tokens())
+        if not pids:
+            QMessageBox.warning(
+                self, "Bulk Import", "No valid LCSC part numbers found."
+            )
+            return
+        self._save_cache()
+        added = sum(1 for pid in pids if self._import_pid(pid, cfg))
+        msg = f"Queued {added} part(s) for import."
+        skipped = len(pids) - added
+        if skipped:
+            msg += f"\n{skipped} already in the list."
+        if invalid:
+            msg += f"\nIgnored {len(invalid)} invalid entr(y/ies)."
+        QMessageBox.information(self, "Bulk Import", msg)
 
     def _insert_row(self, pid, state: PartState):
         self._parts[pid] = state

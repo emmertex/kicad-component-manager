@@ -9,6 +9,11 @@ A GUI for downloading and managing LCSC components in your KiCAD Library.
 ## Features
 
 - Enter an LCSC part number and press **Enter** or **Convert** — the part is queued immediately
+- Bulk Import — paste a list of part numbers or load them from a file
+- Command-line import — import parts straight from the terminal (see below)
+- Curated categories — parts are sorted into a fixed set of ~32 KiCAD symbol libraries; any LCSC category is mapped to the closest match (with an `Uncategorized` fallback)
+  - All libraries and the `sym-lib-table` are created up front, so KiCAD doesn't need a restart when a part lands in a new category
+  - The original LCSC category is still kept on the symbol for granular searching
 - Live status table shows each download step as it progresses
 - Detects parts already present in the library to avoid re-downloading
 - Retry any failed step individually by clicking its cell

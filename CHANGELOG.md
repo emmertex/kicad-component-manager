@@ -23,6 +23,16 @@
   - All category libraries and the sym-lib-table are created up front on startup / when the library location changes, so KiCAD does not need a restart for a new category
   - Category dropdown is now the fixed curated list (no longer a live JLCPCB fetch)
   - New Setting "Allow editing category" - relabels the Category metadata only, does not move the symbol to another library (off by default)
+- CLI Import
+  - Import from the terminal: `python gui2.py -i C1234`
+  - Multiple parts: `python gui2.py -i C1233 C1234 C1235`
+  - From a file (one part per line): `python gui2.py -I parts.txt`
+  - Set the library location from the CLI: `python gui2.py --set-library /path/to/library`
+  - Errors out if no library location is set yet
+  - Uses the same import pipeline as the GUI
+- Bulk Import (GUI)
+  - New "Bulk Import" button - paste a list of part numbers or load them from a file
+  - Shares the same parsing and import path as the CLI
 
 ### v1.2.0 - JLCPCB API implemented, and add Categories support.
 
