@@ -3,3 +3,4 @@ lxml
 KicadModTree
 PySide6
 bs4
+easyeda2kicad==1.0.1

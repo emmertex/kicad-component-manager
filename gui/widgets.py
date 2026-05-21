@@ -54,13 +54,18 @@ from gui.models import (
     C_VALID,
     C_VALUE,
     CB_DESC,
+    CB_FP,
+    CB_JLC,
     CB_PART,
+    CB_PDF,
     CB_PRICE,
     CB_QTY,
     CB_REFS,
     CB_STEP,
     CB_STOCK,
     CB_SUBTOTAL,
+    CB_SYM,
+    CB_VALID,
     CB_VALUE,
     COL_NAMES,
     COL_STEPS,
@@ -78,6 +83,7 @@ from lib.bulk import normalize_pid, parse_parts
 from lib.categories import FINAL_CATEGORIES
 from lib.helpers import (
     PDF_MIN_BYTES,
+    _check_existing,
     _delete_from_lib,
     _find_sym_file,
     _parse_sym_file,
@@ -258,11 +264,12 @@ class BOMWindow(QMainWindow):
     def __init__(self, bom_data: list, output_dir: str = ""):
         super().__init__()
         self.setWindowTitle("KiCad BOM Manager")
-        self.resize(1100, 750)
+        self.resize(1200, 750)
         self._bom_data = bom_data
         self._output_dir = output_dir
         self._parts: dict[str, PartState] = {}
         self._worker = Worker()
+        self._worker.step_started.connect(self._on_started)
         self._worker.step_done.connect(self._on_done)
         self._worker.scrape_done.connect(self._on_scrape_done)
         self._worker.start()
@@ -287,10 +294,12 @@ class BOMWindow(QMainWindow):
         self._tbl.setColumnWidth(CB_REFS, 150)
         self._tbl.setColumnWidth(CB_PART, 100)
         self._tbl.setColumnWidth(CB_VALUE, 150)
-        self._tbl.setColumnWidth(CB_DESC, 300)
+        self._tbl.setColumnWidth(CB_DESC, 250)
         self._tbl.setColumnWidth(CB_QTY, 50)
         self._tbl.setColumnWidth(CB_STOCK, 80)
-        self._tbl.setColumnWidth(CB_STEP, 50)
+        for c in (CB_VALID, CB_SYM, CB_FP, CB_STEP, CB_PDF, CB_JLC):
+            self._tbl.setColumnWidth(c, 28)
+            hdr.setSectionResizeMode(c, QHeaderView.Fixed)
         self._tbl.setColumnWidth(CB_PRICE, 80)
         self._tbl.setColumnWidth(CB_SUBTOTAL, 100)
         self._tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -415,7 +424,18 @@ class BOMWindow(QMainWindow):
             self._tbl.setItem(r, CB_QTY, QTableWidgetItem(str(qty)))
 
             # Initial placeholder for others
-            for c in (CB_DESC, CB_STOCK, CB_STEP, CB_PRICE, CB_SUBTOTAL):
+            for c in (
+                CB_DESC,
+                CB_STOCK,
+                CB_VALID,
+                CB_SYM,
+                CB_FP,
+                CB_STEP,
+                CB_PDF,
+                CB_JLC,
+                CB_PRICE,
+                CB_SUBTOTAL,
+            ):
                 self._tbl.setItem(r, c, QTableWidgetItem(""))
 
             # If we have a PID, try to load from library
@@ -427,45 +447,58 @@ class BOMWindow(QMainWindow):
     def _load_part_from_lib(self, pid, row):
         if not self._output_dir:
             return
-        sym_file = _find_sym_file(pid, Path(self._output_dir) / "symbol")
-        if sym_file:
-            try:
-                for e in _parse_sym_file(sym_file):
-                    if e.get("lcsc") == pid:
-                        self._tbl.item(row, CB_DESC).setText(e.get("description", ""))
-                        self._tbl.item(row, CB_STOCK).setText(e.get("stock", ""))
-                        self._tbl.item(row, CB_PRICE).setText(e.get("price", ""))
 
-                        # Check STEP
-                        fp_ref = e.get("footprint", "")
-                        if fp_ref and ":" in fp_ref:
-                            ln, fn = fp_ref.split(":", 1)
-                            step_p = (
-                                Path(self._output_dir)
-                                / ln
-                                / "packages3d"
-                                / f"{fn}.step"
+        # Check library for existence and STEP
+        existing = _check_existing(pid, self._output_dir)
+
+        # Initialize PartState
+        state = PartState(pid)
+        state.valid = (
+            St.SUCCESS
+            if existing.get("sym_ok") or existing.get("fp_ok")
+            else St.PENDING
+        )
+        state.symbol = St.SUCCESS if existing.get("sym_ok") else St.PENDING
+        state.footprint = St.SUCCESS if existing.get("fp_ok") else St.PENDING
+        state.step = St.SUCCESS if existing.get("step_ok") else St.PENDING
+        state.pdf = St.SUCCESS if existing.get("pdf_ok") else St.PENDING
+        self._parts[pid] = state
+
+        # Update cells
+        for step in ("valid", "symbol", "footprint", "step", "pdf"):
+            self._set_cell(pid, step, state.get(step))
+
+        if existing.get("sym_ok"):
+            sym_file = _find_sym_file(pid, Path(self._output_dir) / "symbol")
+            if sym_file:
+                try:
+                    for e in _parse_sym_file(sym_file):
+                        if e.get("lcsc") == pid:
+                            self._tbl.item(row, CB_DESC).setText(
+                                e.get("description", "")
                             )
-                            self._tbl.item(row, CB_STEP).setText(
-                                "✓" if step_p.exists() else ""
+                            self._tbl.item(row, CB_STOCK).setText(e.get("stock", ""))
+                            self._tbl.item(row, CB_PRICE).setText(e.get("price", ""))
+
+                            state.value = e.get("value", "")
+                            state.description = e.get("description", "")
+                            state.mfr = e.get("mfr", "")
+                            state.category = e.get("category", "")
+                            state.package = e.get("package", "")
+                            state.attributes = e.get("attributes", "")
+                            state.price = e.get("price", "")
+                            state.stock = e.get("stock", "")
+                            state.jlc = (
+                                St.SUCCESS
+                                if (state.price or state.stock)
+                                else St.PENDING
                             )
+                            self._set_cell(pid, "jlc", state.jlc)
 
-                        self._update_row_subtotal(row)
-
-                        # Update PartState for detail panel
-                        state = PartState(pid)
-                        state.value = e.get("value", "")
-                        state.description = e.get("description", "")
-                        state.mfr = e.get("mfr", "")
-                        state.category = e.get("category", "")
-                        state.package = e.get("package", "")
-                        state.attributes = e.get("attributes", "")
-                        state.price = e.get("price", "")
-                        state.stock = e.get("stock", "")
-                        self._parts[pid] = state
-                        break
-            except Exception:
-                pass
+                            self._update_row_subtotal(row)
+                            break
+                except Exception:
+                    pass
 
     def _update_row_subtotal(self, row):
         try:
@@ -511,6 +544,48 @@ class BOMWindow(QMainWindow):
                     w.setCurrentText(val)
                 else:
                     w.setText(val)
+
+    def _set_cell(self, pid, step, st: St, tip=""):
+        # Find row(s) for this pid
+        rows = []
+        for r in range(self._tbl.rowCount()):
+            it = self._tbl.item(r, CB_PART)
+            if it and it.text() == pid:
+                rows.append(r)
+
+        if not rows:
+            return
+
+        # Map step to BOM column
+        step_map = {
+            "valid": CB_VALID,
+            "symbol": CB_SYM,
+            "footprint": CB_FP,
+            "step": CB_STEP,
+            "pdf": CB_PDF,
+            "jlc": CB_JLC,
+        }
+        col = step_map.get(step)
+        if col is None:
+            return
+
+        for r in rows:
+            it = self._tbl.item(r, col)
+            if it is None:
+                it = QTableWidgetItem()
+                it.setFlags(Qt.ItemIsEnabled)
+                self._tbl.setItem(r, col, it)
+            it.setText(st.value)
+            it.setForeground(QColor(ST_COLOR[st]))
+            it.setTextAlignment(Qt.AlignCenter)
+            if tip:
+                it.setToolTip(tip)
+
+    def _on_started(self, pid, step):
+        s = self._parts.get(pid)
+        if s:
+            s.put(step, St.PROCESSING)
+            self._set_cell(pid, step, St.PROCESSING)
 
     def _fetch_prices(self):
         if not self._output_dir:
@@ -593,33 +668,50 @@ class BOMWindow(QMainWindow):
             )
 
     def _on_done(self, pid, step, ok, extra):
-        if not ok:
+        s = self._parts.get(pid)
+        if not s:
             return
 
-        # Update library if JLC data was fetched
-        if step == "jlc":
-            if pid in self._parts:
-                s = self._parts[pid]
-                s.price = extra.get("price", "")
-                s.stock = extra.get("stock", "")
-                if self._output_dir:
-                    for attr, prop in (("price", "Price"), ("stock", "Stock")):
-                        val = getattr(s, attr, "")
-                        if val:
-                            _update_symbol_property(pid, self._output_dir, prop, val)
+        ns = St.SUCCESS if ok else St.FAILED
+        if step == "pdf" and extra.get("skipped"):
+            ns = St.SKIPPED
 
-        # Update table columns if it's a component-related step
+        s.put(step, ns)
+        tip = extra.get("error", "") if not ok else ""
+        self._set_cell(pid, step, ns, tip)
+
+        # Update library if JLC data was fetched
+        if step == "jlc" and ok:
+            s.price = extra.get("price", "")
+            s.stock = extra.get("stock", "")
+            if self._output_dir:
+                for attr, prop in (
+                    ("price", "Price"),
+                    ("stock", "Stock"),
+                    ("description", "Description"),
+                    ("mfr", "Manufacturer"),
+                    ("category", "Category"),
+                ):
+                    val = getattr(s, attr, "")
+                    if val:
+                        _update_symbol_property(pid, self._output_dir, prop, val)
+
+        # Update table columns
         for r in range(self._tbl.rowCount()):
             if self._tbl.item(r, CB_PART).text() == pid:
-                if step == "jlc":
+                if step == "jlc" and ok:
                     self._tbl.item(r, CB_STOCK).setText(extra.get("stock", ""))
                     self._tbl.item(r, CB_PRICE).setText(extra.get("price", ""))
                     self._update_row_subtotal(r)
                     self._update_total()
 
-                # After any successful step (like 'symbol' or 'footprint' from a Replace),
-                # try to reload the metadata from the library to update all columns.
-                self._load_part_from_lib(pid, r)
+                # After any successful step, try to reload metadata from symbol
+                if step == "symbol" and ok:
+                    # Update description if present
+                    desc = extra.get("description", "")
+                    if desc:
+                        self._tbl.item(r, CB_DESC).setText(desc)
+
                 break
 
         if (
@@ -684,7 +776,7 @@ class BOMWindow(QMainWindow):
                 pass
 
         ensure_libraries(cfg["output_dir"], cfg["lib_prefix"])
-        self._worker.process(pid, cfg)
+        self._worker.process(pid, cfg, overwrite=True)
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -716,7 +808,7 @@ class BOMWindow(QMainWindow):
 class MainWindow(QMainWindow):
     def __init__(self, bom_file=None):
         super().__init__()
-        self.setWindowTitle("LCSC to KiCad Converter")
+        self.setWindowTitle("KiCad Library Manager")
         self.resize(1050, 720)
         self._bom_file = bom_file
         self._parts: dict[str, PartState] = {}
@@ -1074,6 +1166,7 @@ class MainWindow(QMainWindow):
             r = self._row(pid)
             if r >= 0:
                 self._tbl.setCurrentCell(r, 0)
+                self._worker.process(pid, cfg, overwrite=True)
             return
         self._save_cache()
         self._import_pid(pid, cfg)
@@ -1220,7 +1313,7 @@ class MainWindow(QMainWindow):
             if cfg2["output_dir"]:
                 _update_sym_lib_table(cfg2["output_dir"])
             desc = extra.get("description", "")
-            value = self._read_value_from_sym(pid)
+            value = extra.get("value") or self._read_value_from_sym(pid)
             self._update_info_cells(pid, value=value, description=desc)
             r = self._row(pid)
             if r >= 0:
@@ -1265,6 +1358,7 @@ class MainWindow(QMainWindow):
                     ("attributes", "Key_Attributes"),
                     ("price", "Price"),
                     ("stock", "Stock"),
+                    ("description", "Description"),
                 ):
                     val = getattr(s, attr, "")
                     if val:
@@ -1526,18 +1620,13 @@ class MainWindow(QMainWindow):
                 s.mfr = e.get("mfr", "")
                 s.category = e.get("category", "")
                 s.package = e.get("package", "")
+
+                # Use unified check for footprint and STEP
                 fp_ref = e.get("footprint", "")
-                s.fp_name_text = fp_ref
-                if fp_ref and ":" in fp_ref:
-                    ln, fn = fp_ref.split(":", 1)
-                    mod = lib / f"{ln}.pretty" / f"{fn}.kicad_mod"
-                    if mod.exists():
-                        s.footprint = St.SUCCESS
-                        step_p = lib / ln / "packages3d" / f"{fn}.step"
-                        s.step = St.SUCCESS if step_p.exists() else St.PENDING
-                    else:
-                        s.footprint = St.PENDING
-                        s.step = St.PENDING
+                existing = _check_existing(pid, cfg["output_dir"], fp_ref=fp_ref)
+                s.fp_name_text = existing.get("fp_name", fp_ref)
+                s.footprint = St.SUCCESS if existing.get("fp_ok") else St.PENDING
+                s.step = St.SUCCESS if existing.get("step_ok") else St.PENDING
                 raw_ds = e.get("datasheet", "")
                 if raw_ds.startswith("http"):
                     s.pdf = St.PENDING

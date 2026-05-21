@@ -1,24 +1,32 @@
+import json
 import logging
+import re
 import traceback
 from pathlib import Path
 from queue import Queue
 
+# Backend imports
+from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+from easyeda2kicad.easyeda.easyeda_importer import (
+    Easyeda3dModelImporter,
+    EasyedaFootprintImporter,
+    EasyedaSymbolImporter,
+)
+from easyeda2kicad.kicad.export_kicad_3d_model import Exporter3dModelKicad
+from easyeda2kicad.kicad.export_kicad_footprint import ExporterFootprintKicad
+from easyeda2kicad.kicad.export_kicad_symbol import ExporterSymbolKicad
 from PySide6.QtCore import QThread, Signal
 
 from gui.models import St
 from lib.api import fetch_component_data
+from lib.categories import resolve_category
 from lib.helpers import (
     PDF_MIN_BYTES,
     _check_existing,
     _lib_name,
     _update_symbol_datasheet,
 )
-
-# Backend imports
-from lib.jlc import component_info as _cinfo
 from lib.jlc import helper, pdf_downloader
-from lib.jlc.footprint.footprint import create_footprint
-from lib.jlc.symbol.symbol import create_symbol
 
 
 # ── Log capture ───────────────────────────────────────────────────────────────
@@ -46,8 +54,8 @@ class Worker(QThread):
         self._q: Queue = Queue()
         self._cache: dict[str, dict] = {}
 
-    def process(self, pid, cfg):
-        self._q.put(("new", pid, cfg))
+    def process(self, pid, cfg, overwrite=False):
+        self._q.put(("new", pid, cfg, overwrite))
 
     def retry(self, pid, step, cfg):
         self._q.put(("retry", pid, step, cfg))
@@ -65,7 +73,7 @@ class Worker(QThread):
                 break
             try:
                 if task[0] == "new":
-                    self._full(task[1], task[2])
+                    self._full(task[1], task[2], task[3])
                 elif task[0] == "retry":
                     self._do_retry(task[1], task[2], task[3])
                 elif task[0] == "scrape":
@@ -74,18 +82,32 @@ class Worker(QThread):
                 logging.error(f"Worker task failed: {traceback.format_exc()}")
 
     # ── Full sequence ─────────────────────────────────────────────────────────
-    def _full(self, pid, cfg):
+    def _full(self, pid, cfg, overwrite=False):
         c = self._cache.setdefault(pid, {})
+        log = self._logfn(pid)
         ok, extra = self._do_validate(pid, cfg)
         if not ok:
+            log(f"Aborting: Validation failed for {pid}")
             return
         c.update(extra)
+
+        # Always fetch fresh JLC data
         self._do_jlc(pid, c, cfg)
-        if not c.get("fp_ok"):
+
+        # Check if we should skip based on library status
+        if not overwrite and c.get("fp_ok"):
+            log(
+                f"Footprint for {pid} already in library, skipping (use Replace to force)"
+            )
+        else:
             self._do_footprint(pid, c, cfg)
-        if not c.get("sym_ok"):
+
+        if not overwrite and c.get("sym_ok"):
+            log(f"Symbol for {pid} already in library, skipping (use Replace to force)")
+        else:
             self._do_symbol(pid, c, cfg)
-        if cfg["dl_pdf"] and not c.get("pdf_ok"):
+
+        if cfg["dl_pdf"] and (overwrite or not c.get("pdf_ok")):
             self._do_pdf(pid, c, cfg)
         elif not cfg["dl_pdf"]:
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
@@ -117,6 +139,19 @@ class Worker(QThread):
         self.step_started.emit(pid, "valid")
         log = self._logfn(pid)
         try:
+            api = EasyedaApi()
+            log(f"Fetching EasyEDA CAD data for {pid}...")
+            cad_data = api.get_cad_data_of_component(pid)
+            if not cad_data:
+                raise RuntimeError("Part not found on EasyEDA")
+
+            # Store cad_data in the internal cache for later steps
+            c = self._cache.get(pid, {})
+            c["cad_data"] = cad_data
+
+            # For compatibility with legacy logic and GUI:
+            # We still fetch the /svgs endpoint to get unit counts/UUIDs if needed,
+            # though easyeda2kicad doesn't strictly need them as it uses cad_data.
             url = f"https://easyeda.com/api/products/{pid}/svgs"
             log(f"GET {url}")
             s = helper.get_easyeda_session()
@@ -129,6 +164,7 @@ class Worker(QThread):
             results = data["result"]
             fp_uuid = results[-1]["component_uuid"]
             sym_uuids = [i["component_uuid"] for i in results[:-1]]
+
             log(f"OK — {len(sym_uuids)} sym unit(s), fp {fp_uuid[:8]}…")
             existing = _check_existing(pid, cfg["output_dir"])
             log(
@@ -155,75 +191,194 @@ class Worker(QThread):
             )
             return
         inc = cfg["dl_step"]
-        h = _Cap(self._logfn(pid))
         self.step_started.emit(pid, "footprint")
         if inc:
             self.step_started.emit(pid, "step")
-        logging.getLogger().addHandler(h)
+
+        log = self._logfn(pid)
         try:
-            fp_name, ds_link = create_footprint(
-                footprint_component_uuid=fp_uuid,
-                component_id=pid,
-                footprint_lib="footprint",
-                output_dir=cfg["output_dir"],
-                model_base_variable="",
-                model_dir="packages3d",
-                skip_existing=False,
-                models="STEP" if inc else None,
+            api = EasyedaApi()
+            cad_data = c.get("cad_data")
+            if not cad_data:
+                log(f"Fetching EasyEDA CAD data for {pid}...")
+                cad_data = api.get_cad_data_of_component(pid)
+                if not cad_data:
+                    raise RuntimeError("Failed to fetch CAD data from EasyEDA")
+                c["cad_data"] = cad_data
+
+            log(f"Importing footprint for {pid}...")
+            fp_importer = EasyedaFootprintImporter(cad_data)
+            ee_footprint = fp_importer.get_footprint()
+
+            # Create exporter
+            exporter = ExporterFootprintKicad(ee_footprint)
+
+            # Prepare paths
+            pretty_dir = Path(cfg["output_dir"]) / "footprint.pretty"
+            pretty_dir.mkdir(parents=True, exist_ok=True)
+
+            fp_name = ee_footprint.info.name
+            mod_path = pretty_dir / f"{fp_name}.kicad_mod"
+
+            # 3D model path
+            model_dir_name = "packages3d"
+            model_rel_path = f"footprint/{model_dir_name}"  # relative to library root
+
+            exporter.export(
+                footprint_full_path=str(mod_path),
+                model_3d_path=model_rel_path,
+                model_3d_extension="wrl",
             )
-            c["fp_name"] = fp_name
-            c["ds_link"] = ds_link
-            self.step_done.emit(pid, "footprint", True, {"fp_name": fp_name})
+
+            c["fp_name"] = f"footprint:{fp_name}"
+
+            self.step_done.emit(pid, "footprint", True, {"fp_name": c["fp_name"]})
+
             if inc:
-                bare = fp_name.split(":")[-1] if ":" in fp_name else fp_name
-                step_ok = (
-                    Path(cfg["output_dir"])
-                    / "footprint"
-                    / "packages3d"
-                    / f"{bare}.step"
-                ).exists()
-                self.step_done.emit(pid, "step", step_ok, {})
+                log(f"Exporting 3D model for {pid}...")
+                model_3d = ee_footprint.model_3d
+                if model_3d:
+                    # We need to fetch the raw data for exporter
+                    model_3d.raw_obj = api.get_raw_3d_model_obj(model_3d.uuid)
+                    model_3d.step = api.get_step_3d_model(model_3d.uuid)
+
+                    exporter_3d = Exporter3dModelKicad(model_3d)
+                    model_abs_dir = (
+                        Path(cfg["output_dir"]) / "footprint" / model_dir_name
+                    )
+                    exporter_3d.export(str(model_abs_dir), overwrite=True)
+
+                    step_ok = (model_abs_dir / f"{model_3d.name}.step").exists()
+                    self.step_done.emit(pid, "step", step_ok, {})
+                else:
+                    log("No 3D model found for this part.")
+                    self.step_done.emit(pid, "step", False, {"error": "No 3D model"})
+
         except Exception as e:
-            self._logfn(pid)(f"Footprint error: {e}")
+            log(f"Footprint error: {e}")
             self.step_done.emit(pid, "footprint", False, {"error": str(e)})
             if inc:
                 self.step_done.emit(pid, "step", False, {})
-        finally:
-            logging.getLogger().removeHandler(h)
 
     def _do_symbol(self, pid, c, cfg):
-        sym_uuids = c.get("sym_uuids")
-        if not sym_uuids:
-            self.step_done.emit(
-                pid, "symbol", False, {"error": "No UUIDs — re-run Valid"}
-            )
-            return
-        h = _Cap(self._logfn(pid))
         self.step_started.emit(pid, "symbol")
-        logging.getLogger().addHandler(h)
+        log = self._logfn(pid)
         try:
+            api = EasyedaApi()
+            cad_data = c.get("cad_data")
+            if not cad_data:
+                log(f"Fetching EasyEDA CAD data for {pid}...")
+                cad_data = api.get_cad_data_of_component(pid)
+                if not cad_data:
+                    raise RuntimeError("Failed to fetch CAD data from EasyEDA")
+                c["cad_data"] = cad_data
+
+            log(f"Importing symbol for {pid}...")
+            sym_importer = EasyedaSymbolImporter(cad_data)
+            ee_symbol = sym_importer.get_symbol()
+
+            # Prepare metadata
             info = c.get("comp_info") or fetch_component_data(
                 pid, cfg.get("jlcpcb_api_key")
             )
-
             c["comp_info"] = info
-            category = info.get("category") or info.get("Category") or ""
-            lib_name = _lib_name(category, cfg.get("lib_prefix", ""))
-            ds = c.get("ds_link") or c.get("lcsc_url") or ""
-            fp = (c.get("fp_name") or "").replace(".pretty", "")
-            create_symbol(
-                symbol_component_uuid=sym_uuids,
-                footprint_name=fp,
-                datasheet_link=ds,
-                library_name=lib_name,
-                symbol_path="symbol",
-                output_dir=cfg["output_dir"],
-                component_id=pid,
-                skip_existing=False,
-                component_info_data=info,
-                price=info.get("price") or None,
-                stock=info.get("stock") or None,
+
+            # Category and Library
+            raw_category = info.get("category") or info.get("Category") or ""
+            category = resolve_category(raw_category)
+            lib_name = _lib_name(raw_category, cfg.get("lib_prefix", ""))
+
+            # Custom fields for KiCad symbol
+            # Note: ExporterSymbolKicad from easyeda2kicad already adds:
+            # Reference, Value, Footprint, Datasheet, Manufacturer, MPN, LCSC Part, ki_keywords, Description.
+            # We'll update ee_symbol.info directly for these built-in fields.
+            ee_symbol.info.manufacturer = (
+                info.get("mfr")
+                or info.get("manufacturer")
+                or ee_symbol.info.manufacturer
             )
+            ee_symbol.info.package = (
+                info.get("package") or info.get("Package") or ee_symbol.info.package
+            )
+            ee_symbol.info.description = (
+                info.get("description") or ee_symbol.info.description
+            )
+            ee_symbol.info.lcsc_id = pid
+
+            # Value
+            val = info.get("value") or info.get("Value") or pid
+            ee_symbol.info.name = val
+
+            # Datasheet - use local PDF if available
+            ds = c.get("ds_link") or c.get("lcsc_url") or ee_symbol.info.datasheet or ""
+            ee_symbol.info.datasheet = ds
+
+            # Additional custom fields
+            custom_fields = {
+                "LCSC": pid,  # Legacy field name some users might expect
+                "Category": category,
+                "Description": (info.get("description") or ee_symbol.info.description),
+                "Manufacturer": (
+                    info.get("mfr")
+                    or info.get("manufacturer")
+                    or ee_symbol.info.manufacturer
+                ),
+            }
+            if info.get("attributes"):
+                custom_fields["Key_Attributes"] = info.get("attributes")
+            if info.get("stock"):
+                custom_fields["Stock"] = info.get("stock")
+            if info.get("price"):
+                custom_fields["Price"] = info.get("price")
+
+            # Add individual specifications as properties
+            for spec_name, spec_value in info.get("specifications", {}).items():
+                # Clean up property name for KiCad
+                clean_name = re.sub(r"[^\w\s-]", "", spec_name).strip()
+                if (
+                    clean_name
+                    and len(clean_name) <= 50
+                    and clean_name not in custom_fields
+                ):
+                    # Avoid overwriting built-in fields
+                    if clean_name not in (
+                        "Reference",
+                        "Value",
+                        "Footprint",
+                        "Datasheet",
+                        "Manufacturer",
+                        "MPN",
+                        "LCSC Part",
+                        "Description",
+                    ):
+                        custom_fields[clean_name] = spec_value
+
+            # Library Path
+            lib_path = Path(cfg["output_dir"]) / "symbol" / f"{lib_name}.kicad_sym"
+            lib_path.parent.mkdir(parents=True, exist_ok=True)
+
+            log(f"Saving symbol to {lib_path.name}...")
+            # Exporter
+            exporter = ExporterSymbolKicad(
+                ee_symbol,
+                lib_path=str(lib_path),
+                custom_fields=custom_fields,
+            )
+
+            # Footprint reference
+            fp = (c.get("fp_name") or "").replace(".pretty", "")
+            if ":" in fp:
+                fp_lib, fp_bare = fp.split(":", 1)
+            else:
+                fp_lib, fp_bare = "footprint", fp
+
+            exporter.output.info.package = fp_bare
+
+            save_ok = exporter.save_to_lib(
+                lib_path=str(lib_path), footprint_lib_name=fp_lib, overwrite=True
+            )
+            if not save_ok:
+                log(f"Warning: save_to_lib returned False for {lib_path.name}")
 
             # Extract attributes for the GUI
             self.step_done.emit(
@@ -231,29 +386,24 @@ class Worker(QThread):
                 "symbol",
                 True,
                 {
-                    "value": info.get("value", ""),
-                    "description": info.get("description", ""),
-                    "package": (info.get("package") or info.get("Package") or ""),
-                    "mfr": (
-                        info.get("mfr")
-                        or info.get("manufacturer")
-                        or info.get("Manufacturer")
-                        or ""
+                    "value": val,
+                    "description": (
+                        info.get("description") or ee_symbol.info.description
                     ),
+                    "package": ee_symbol.info.package,
+                    "mfr": ee_symbol.info.manufacturer,
                     "category": category,
-                    "attributes": (
-                        info.get("attributes") or info.get("Key_Attributes") or ""
-                    ),
+                    "attributes": info.get("attributes", ""),
                     "price": info.get("price", ""),
                     "stock": info.get("stock", ""),
                 },
             )
         except Exception as e:
+            import traceback
+
             err_msg = f"Symbol error: {e}\n{traceback.format_exc()}"
-            self._logfn(pid)(err_msg)
+            log(err_msg)
             self.step_done.emit(pid, "symbol", False, {"error": str(e)})
-        finally:
-            logging.getLogger().removeHandler(h)
 
     def _do_pdf(self, pid, c, cfg):
         h = _Cap(self._logfn(pid))
@@ -295,12 +445,13 @@ class Worker(QThread):
             log(
                 f"API OK — stock={info.get('stock', '?')}  price={info.get('price', '?')}"
             )
+            cat = resolve_category(info.get("category", ""))
             self.step_done.emit(
                 pid,
                 "jlc",
                 True,
                 {
-                    "category": info.get("category", ""),
+                    "category": cat,
                     "mfr": info.get("mfr", ""),
                     "package": info.get("package", ""),
                     "attributes": info.get("attributes", ""),

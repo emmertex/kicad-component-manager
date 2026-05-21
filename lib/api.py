@@ -33,19 +33,21 @@ class JLCPCBAPIWrapper:
                 return None
 
             # Map JLCPCB fields to our common format
+            specs = {}
+            for p in data.get("parameters", []):
+                name = p.get("name")
+                value = p.get("value")
+                if name and value:
+                    specs[name] = value
+
             out = {
                 "value": data.get("model", ""),
                 "mfr": data.get("brand", ""),
                 "category": data.get("categoryName") or data.get("category") or "",
                 "package": data.get("package", ""),
                 "description": data.get("description", ""),
-                "attributes": "; ".join(
-                    [
-                        f"{p.get('name', '')}: {p.get('value', '')}"
-                        for p in data.get("parameters", [])
-                        if p.get("name") and p.get("value")
-                    ]
-                ),
+                "specifications": specs,
+                "attributes": "; ".join([f"{k}: {v}" for k, v in specs.items()]),
             }
 
             # Use dedicated stock/pricing methods for accuracy as requested
@@ -121,12 +123,17 @@ class LCSCAPIClient:
             params = product.get("paramVOList") or []
             main = [p for p in params if p.get("isMain") is True]
             other = [p for p in params if p.get("isMain") is not True]
+
+            specs = {}
             parts = []
             for p in main + other:
                 name = (p.get("paramNameEn") or "").strip()
                 value = (p.get("paramValueEn") or "").strip()
                 if name and value and value != "-":
+                    specs[name] = value
                     parts.append(f"{name}: {value}")
+
+            out["specifications"] = specs
             if parts:
                 out["attributes"] = "; ".join(parts)
 

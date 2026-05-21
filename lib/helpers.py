@@ -53,41 +53,103 @@ def _find_sym_file(pid: str, sym_dir: Path) -> "Path | None":
     """Search all .kicad_sym files in sym_dir for the given LCSC pid."""
     if not sym_dir.exists():
         return None
-    marker = f'(property "LCSC" "{pid}"'
+    # Match (property "LCSC" "PID" or (property "LCSC Part" "PID"
+    pattern = re.compile(
+        r'\(property\s+"LCSC(?:\s+Part)?"\s+"' + re.escape(pid) + r'"', re.DOTALL
+    )
     for sf in sorted(sym_dir.glob("*.kicad_sym")):
         try:
-            if marker in sf.read_text(encoding="utf-8", errors="replace"):
+            content = sf.read_text(encoding="utf-8", errors="replace")
+            if pattern.search(content):
                 return sf
         except OSError:
             pass
     return None
 
 
-def _check_existing(pid, output_dir):
+def _check_existing(pid, output_dir, fp_ref=None):
     lib = Path(output_dir)
     out = {}
     sym_file = _find_sym_file(pid, lib / "symbol")
-    fp_ref = ""
     if sym_file is not None:
-        txt = sym_file.read_text(encoding="utf-8", errors="replace")
-        marker = f'(property "LCSC" "{pid}"'
         out["sym_ok"] = True
-        idx = txt.find(marker)
-        if idx >= 0:
-            block = txt[max(0, idx - 3000) : idx + 200]
-            m = re.search(r'\(property "Footprint" "([^"]*)"', block)
-            if m:
-                fp_ref = m.group(1)
+        if not fp_ref:
+            try:
+                content = sym_file.read_text(encoding="utf-8", errors="replace")
+                marker = re.compile(
+                    r'\(property\s+"LCSC(?:\s+Part)?"\s+"' + re.escape(pid) + r'"',
+                    re.DOTALL,
+                )
+                m_pid = marker.search(content)
+                if m_pid:
+                    # Find start of symbol block by searching backwards for (symbol
+                    block_start = content.rfind('(symbol "', 0, m_pid.start())
+                    if block_start != -1:
+                        # Find the end of this symbol block
+                        block_end = _find_block_end(content, block_start)
+                        if block_end == -1:
+                            block_end = len(content)
+                        else:
+                            block_end += 1
+                        block = content[block_start:block_end]
+                        m_fp = re.search(
+                            r'\(property\s+"Footprint"\s+"([^"]*)"', block, re.DOTALL
+                        )
+                        if m_fp:
+                            fp_ref = m_fp.group(1)
+            except Exception:
+                pass
+
     if fp_ref and ":" in fp_ref:
         lib_name, fp_name = fp_ref.split(":", 1)
-        mod = lib / f"{lib_name}.pretty" / f"{fp_name}.kicad_mod"
-        if mod.exists():
-            out["fp_ok"] = True
-            out["fp_name"] = fp_ref
-            # STEP lives under footprint_lib/ (no .pretty), not footprint_lib.pretty/
-            step = lib / lib_name / "packages3d" / f"{fp_name}.step"
-            if step.exists():
-                out["step_ok"] = True
+        # Try both the specific lib_name and 'footprint' as directory names
+        for ln in [lib_name, "footprint"]:
+            mod = lib / f"{ln}.pretty" / f"{fp_name}.kicad_mod"
+            if mod.exists():
+                out["fp_ok"] = True
+                out["fp_name"] = f"{ln}:{fp_name}"
+
+                # Check for STEP file
+                try:
+                    mod_txt = mod.read_text(encoding="utf-8", errors="replace")
+                    model_names = []
+                    # 1. Descriptive name from (model ...)
+                    for m in re.finditer(r'\(model\s+"([^"]+)"', mod_txt, re.DOTALL):
+                        model_names.append(Path(m.group(1)).stem)
+                    # 2. Part number
+                    model_names.append(pid)
+                    # 3. Footprint name
+                    model_names.append(fp_name)
+
+                    # Search directories
+                    search_dirs = [
+                        lib / ln / "packages3d",
+                        lib / "footprint" / "packages3d",
+                        lib / "packages3d",
+                    ]
+
+                    step_found = False
+                    for d in search_dirs:
+                        if not d.exists():
+                            continue
+                        for name in model_names:
+                            if not name:
+                                continue
+                            for ext in [".step", ".STEP", ".stp", ".STP"]:
+                                if (d / (name + ext)).exists():
+                                    step_found = True
+                                    break
+                            if step_found:
+                                break
+                        if step_found:
+                            break
+
+                    if step_found:
+                        out["step_ok"] = True
+                except Exception:
+                    pass
+                break  # Found the footprint, stop searching libraries
+
     pdf = lib / "pdf" / f"{pid}.pdf"
     if pdf.exists() and pdf.stat().st_size >= PDF_MIN_BYTES:
         out["pdf_ok"] = True
@@ -101,16 +163,19 @@ def _update_symbol_datasheet(pid: str, output_dir: str, new_ds: str) -> bool:
         return False
     try:
         content = sym_file.read_text(encoding="utf-8", errors="replace")
-        marker = f'(property "LCSC" "{pid}"'
+        marker = re.compile(
+            r'\(property\s+"LCSC(?:\s+Part)?"\s+"' + re.escape(pid) + r'"', re.DOTALL
+        )
 
         def patch_block(m):
             block = m.group(0)
-            if marker not in block:
+            if not marker.search(block):
                 return block
             return re.sub(
-                r'(\(property "Datasheet" ")[^"]*(")',
+                r'(\(property\s+"Datasheet"\s+")[^"]*(")',
                 lambda dm: dm.group(1) + new_ds + dm.group(2),
                 block,
+                flags=re.DOTALL,
             )
 
         new_content = re.sub(
@@ -165,7 +230,9 @@ def _update_symbol_property(
         prop_names = [prop_names]
     try:
         content = sym_file.read_text(encoding="utf-8", errors="replace")
-        marker = f'(property "LCSC" "{pid}"'
+        marker = re.compile(
+            r'\(property\s+"LCSC(?:\s+Part)?"\s+"' + re.escape(pid) + r'"', re.DOTALL
+        )
 
         # Find all top-level symbol starts.
         # Top-level symbols are direct children of kicad_symbol_lib.
@@ -202,17 +269,18 @@ def _update_symbol_property(
             block = content[bracket_pos:end_pos]
             indent = m.group(1)
 
-            if marker in block and not found_block:
+            if marker.search(block) and not found_block:
                 found_block = True
                 patched = block
                 replaced = False
                 for name in prop_names:
                     # Use count=1 to ensure we only update the first occurrence in this block
                     patched_new, count = re.subn(
-                        r'(\(property "' + re.escape(name) + r'" ")[^"]*(")',
+                        r'(\(property\s+"' + re.escape(name) + r'"\s+")[^"]*(")',
                         lambda dm: dm.group(1) + new_value + dm.group(2),
                         block,
                         count=1,
+                        flags=re.DOTALL,
                     )
                     if count > 0:
                         patched = patched_new
@@ -311,8 +379,8 @@ def _parse_sym_file(sym_file: Path):
     top_matches = [m for m in all_matches if len(m.group(1)) == min_indent]
 
     prop_re = re.compile(
-        r'^[ \t]{2,}\(property "([^"]+)"\s+"((?:[^"\\]|\\.)*?)"',
-        re.MULTILINE,
+        r'\(property\s+"([^"]+)"\s+"((?:[^"\\]|\\.)*?)"',
+        re.DOTALL,
     )
     results = []
     for i, m in enumerate(top_matches):
@@ -323,15 +391,19 @@ def _parse_sym_file(sym_file: Path):
         results.append(
             {
                 "name": m.group(2),
-                "lcsc": props.get("LCSC", ""),
+                "lcsc": props.get("LCSC", props.get("LCSC Part", "")),
                 "footprint": props.get("Footprint", ""),
                 "datasheet": props.get("Datasheet", ""),
                 "value": props.get("Value", ""),
-                "description": props.get("Description_1", props.get("Description", "")),
+                "description": (
+                    props.get("Description_1")
+                    or props.get("Description")
+                    or props.get("ki_description", "")
+                ),
                 "package": props.get("Package", ""),
                 "mfr": props.get("Manufacturer", props.get("MFR", "")),
                 "category": props.get("Category", ""),
-                "attributes": props.get("Key_Attributes", ""),
+                "attributes": props.get("Key_Attributes", props.get("ki_keywords", "")),
                 "price": props.get("Price", ""),
                 "stock": props.get("Stock", ""),
             }
@@ -367,17 +439,20 @@ def _delete_from_lib(pid, output_dir):
     sym_file = _find_sym_file(pid, lib / "symbol")
     if sym_file is not None:
         content = sym_file.read_text(encoding="utf-8", errors="replace")
-        marker = f'(property "LCSC" "{pid}"'
-        if marker in content:
-            idx = content.find(marker)
+        marker = re.compile(
+            r'\(property\s+"LCSC"\s+"' + re.escape(pid) + r'"', re.DOTALL
+        )
+        m_pid = marker.search(content)
+        if m_pid:
+            idx = m_pid.start()
             block = content[max(0, idx - 3000) : idx + 200]
-            m = re.search(r'\(property "Footprint" "([^"]*)"', block)
-            if m:
-                fp_ref = m.group(1)
+            m_fp = re.search(r'\(property\s+"Footprint"\s+"([^"]*)"', block, re.DOTALL)
+            if m_fp:
+                fp_ref = m_fp.group(1)
         # Remove the symbol block
         new = re.sub(
             r'\n([ \t]+)\(symbol "[^"]*".*?\n\1\)',
-            lambda m: "" if f'(property "LCSC" "{pid}"' in m.group(0) else m.group(0),
+            lambda m: "" if marker.search(m.group(0)) else m.group(0),
             content,
             flags=re.DOTALL,
         )

@@ -1,5 +1,23 @@
 ## v2.0 - KiCad Library Manager
 
+### v2.1.0 - External Backend
+
+**BOM Manager Improvements**
+- Part state tracking (valid, symbol, footprint, step, pdf, jlc)
+- Improved cell formatting and tooltips for part state
+
+**Using easyeda2kicad.py backend**
+- Not sure how I never knew this existed, but I do now!
+- Moved from my heavily modified older libraries for handling EasyEDA Conversions, to the easyeda2kicad.py backend.
+- Utilise the actual python project, despite not calling it directly.  
+  - This means that the version used is pinned in requirements.txt, as updates may break compatibility.  
+- This is a large refactor, and I have encountered a lot of bugs, that I have slowly fixed. 
+  - So v2.1.0 is marked as pre-release only, and will not ever be released as stable.
+  - Once I have completed enough hours using all functions, without issue, will I make it stable. 
+  - Fixes will be released with version numbers for those wanting to stay on this version. 
+- Currently I have noticed little difference between 2.0 and 2.1 in terms of functionality or stability, so while this is a major refactor, it is not a major change.
+
+
 ### v2.0.0 - New Name, KiCad Library Manager - Now with BOM Manager
 
 - **BOM Manager**: 

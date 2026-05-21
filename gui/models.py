@@ -31,10 +31,15 @@ from PySide6.QtWidgets import QTableWidgetItem
     CB_DESC,
     CB_QTY,
     CB_STOCK,
+    CB_VALID,
+    CB_SYM,
+    CB_FP,
     CB_STEP,
+    CB_PDF,
+    CB_JLC,
     CB_PRICE,
     CB_SUBTOTAL,
-) = range(9)
+) = range(14)
 
 BOM_COL_NAMES = [
     "Designator(s)",
@@ -43,7 +48,12 @@ BOM_COL_NAMES = [
     "Description",
     "Qty",
     "Stock",
-    "STEP",
+    "V",
+    "S",
+    "F",
+    "3D",
+    "P",
+    "J",
     "Price",
     "Sub Total",
 ]

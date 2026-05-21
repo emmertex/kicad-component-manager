@@ -125,7 +125,8 @@ rm ~/.local/share/kicad/10.0/scripting/plugins/lcsc2kicad
 
 ## Credits
 
-Built upon:
+While there is little of the original code left, it would never have existed without their work.
+Thank you for your contributions!
 
 - [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) by TousstNicolas — core symbol/footprint/3D model conversion (MIT)
 - [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti — LCSC component handling approach (MIT)
