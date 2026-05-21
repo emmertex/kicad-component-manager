@@ -1,5 +1,11 @@
 ## v2.0 - KiCad Library Manager
 
+### v2.0.1 - Bug fixes
+
+- **Fixed**: Logging handler leak in Worker — `addHandler` was called before the `try` block in `_do_footprint`, `_do_symbol`, and `_do_pdf`, so if signal emission raised an exception the handler was never removed, causing duplicate log entries on repeated operations.
+- **Fixed**: `KeyError` crash in JLCPCB API wrapper — parameter dicts with missing `name` or `value` keys would crash the entire fetch; now uses `.get()` with filtering.
+- **Fixed**: `AttributeError` crash in BOM `_update_total` — table items that are `None` are now skipped safely (consistent with the existing guard in `_update_row_subtotal`).
+
 ### v2.0.0 - New project name, with big goals.
 
 - Clean up and organise code more, with intention of support of more suppliers.

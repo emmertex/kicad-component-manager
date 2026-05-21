@@ -482,8 +482,10 @@ class BOMWindow(QMainWindow):
     def _update_total(self):
         total = 0.0
         for r in range(self._tbl.rowCount()):
-            sub_str = self._tbl.item(r, CB_SUBTOTAL).text()
-            match = re.search(r"(\d+\.?\d*)", sub_str)
+            item = self._tbl.item(r, CB_SUBTOTAL)
+            if item is None:
+                continue
+            match = re.search(r"(\d+\.?\d*)", item.text())
             if match:
                 total += float(match.group(1))
         self._total_label.setText(f"Total BOM Price: ${total:.2f}")

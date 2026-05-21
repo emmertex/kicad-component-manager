@@ -156,10 +156,10 @@ class Worker(QThread):
             return
         inc = cfg["dl_step"]
         h = _Cap(self._logfn(pid))
-        logging.getLogger().addHandler(h)
         self.step_started.emit(pid, "footprint")
         if inc:
             self.step_started.emit(pid, "step")
+        logging.getLogger().addHandler(h)
         try:
             fp_name, ds_link = create_footprint(
                 footprint_component_uuid=fp_uuid,
@@ -199,8 +199,8 @@ class Worker(QThread):
             )
             return
         h = _Cap(self._logfn(pid))
-        logging.getLogger().addHandler(h)
         self.step_started.emit(pid, "symbol")
+        logging.getLogger().addHandler(h)
         try:
             info = c.get("comp_info") or fetch_component_data(
                 pid, cfg.get("jlcpcb_api_key")
@@ -257,8 +257,8 @@ class Worker(QThread):
 
     def _do_pdf(self, pid, c, cfg):
         h = _Cap(self._logfn(pid))
-        logging.getLogger().addHandler(h)
         self.step_started.emit(pid, "pdf")
+        logging.getLogger().addHandler(h)
         try:
             ok, path, err = pdf_downloader.download_pdf(pid, cfg["output_dir"])
             if ok and path:

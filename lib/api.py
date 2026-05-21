@@ -40,7 +40,11 @@ class JLCPCBAPIWrapper:
                 "package": data.get("package", ""),
                 "description": data.get("description", ""),
                 "attributes": "; ".join(
-                    [f"{p['name']}: {p['value']}" for p in data.get("parameters", [])]
+                    [
+                        f"{p.get('name', '')}: {p.get('value', '')}"
+                        for p in data.get("parameters", [])
+                        if p.get("name") and p.get("value")
+                    ]
                 ),
             }
 
