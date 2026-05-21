@@ -1,174 +1,143 @@
-# LCSC to KiCad Library Converter GUI
+# KiCad Component Manager
 
-A graphical user interface for converting LCSC/JLCPCB component libraries to KiCad format. This project builds upon and combines two excellent projects:
-- [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) by TousstNicolas
-- [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti
+A KiCad Library Manager and BOM Manager that downloads and manages LCSC components for your KiCad projects.
+
+---
 
 ## Features
 
-- User-friendly graphical interface
-- Easy component management:
-  - Add components with or without 'C' prefix
-  - Add comments to components
-  - Delete individual components
-  - Clear entire list
-- Save/Load component lists (JSON format)
-- Generate KiCad libraries including:
-  - Symbols (.kicad_sym)
-  - Footprints (.pretty)
-  - 3D Models (STEP format)
-- Progress tracking and error logging
+### Library Manager
+
+![Library Manager Screenshot](images/Screenshot_20260521_110841.png)
+
+- Enter an LCSC part number and press **Enter** or **Import** — the part is queued immediately
+- Bulk Import — paste a list of part numbers or load them from a file
+- Command-line import — import parts straight from the terminal (see below)
+- Curated categories — parts are sorted into a fixed set of ~32 KiCAD symbol libraries; any LCSC category is mapped to the closest match (with an `Uncategorized` fallback)
+  - All libraries and the `sym-lib-table` are created up front, so KiCAD doesn't need a restart when a part lands in a new category
+  - The original LCSC category is still kept on the symbol for granular searching
+- Live status table shows each download step as it progresses
+- Detects parts already present in the library to avoid re-downloading
+- Retry any failed step individually by clicking its cell
+- Load an existing KiCad library to inspect and manage parts already in it
+- Delete a part from the library (symbol, footprint, STEP, and PDF) with one click
+- PDF size check — files under 10 KB (LCSC "not available" placeholders) are rejected automatically
+- When PDF is disabled or unavailable, the LCSC product URL is stored in the PDF cell
+- Recent library locations remembered in a dropdown
+- Available as a KiCad Action Plugin (Tools → External Plugins)
+
+### BOM Manager
+
+![BOM Manager Screenshot](images/Screenshot_20260521_110943.png)
+
+> **Note:** The BOM Manager must be launched from within KiCad and requires the plugin to be installed.
+
+- Reads all components from the open PCB and displays them grouped by part, with designators, values, descriptions, and quantities
+- Instantly highlights parts missing an LCSC part number or a 3D STEP model
+- Fetch latest pricing and stock levels from JLCPCB for all parts, or only for parts not yet priced
+- Shows a running total BOM price
+- Assign an LCSC part number to any ungrouped part directly from the table
+- Replace a component in the library with a freshly downloaded version (full symbol, footprint, and 3D model)
+- Export the complete BOM to a CSV file
+
+---
+
+**Status icons**
+
+| Icon | Meaning |
+|---|---|
+| ○ | Not yet started |
+| ⟳ | In progress |
+| ✓ | Done |
+| ✗ | Failed — click to retry |
+| — | Skipped (option disabled) |
+
+Clicking any **○ or ✗** cell retries only that step.  
+Clicking a row shows the download log for that part in the panel below the table.
+
+---
+
+## Importing into KiCad
+
+- **Symbols:** Preferences → Manage Symbol Libraries → add Table `sym-lib-table`
+- **Footprints:** Preferences → Manage Footprint Libraries → add the `footprint.pretty` folder
+- **3D models:** Linked automatically inside the footprint; keep `footprint/` and `footprint.pretty/` in the same parent directory
+
+---
 
 ## Installation
 
-1. Clone the repository:
+### Standalone (no KiCad integration)
+
+**BOM Manager will not work** without KiCad integration.
+
 ```bash
-git clone https://github.com/YourUsername/lcsc2kicad-gui
-cd lcsc2kicad-gui
+git clone https://github.com/emmertex/kicad-component-manager
+cd kicad-component-manager
+./run.sh
 ```
 
-2. Install dependencies:
+On Windows (without WSL):
+
 ```bash
-pip install requests lxml pillow svg2mod semantic-version KicadModTree PySide6
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python manager.py
 ```
 
-## Usage
+---
 
-### Starting the GUI
+## KiCad Plugin Installation (Reccomended)
 
-Run the GUI application:
+### Option 1 — Install from File (Recommended for most users (for now))
+
+The PCM zip is self-contained: it bundles the application and the full backend.
+Python dependencies (PySide6, requests, etc.) are handled automatically on first use.
+
+1. Download the latest PCB from Releases: [Download](https://github.com/emmertex/kicad-component-manager/releases)
+2. In KiCad: **Plugin and Content Manager → Install from File** → select the zip. and install.
+3. Click **KiCad Component Manager** or **BOM Manager** in the toolbar or via **Tools → External Plugins**.
+   - If PySide6 is already installed system-wide, the GUI launches immediately.
+   - If not, a one-time setup dialog offers to create a local venv and install all
+     dependencies automatically (~1–2 minutes). After that, subsequent launches are instant.
+
+
+### Option 2 — Symlink install (recommended for repo users on Linux only)
+
 ```bash
-python gui.py
+git clone https://github.com/emmertex/kicad-component-manager
+cd kicad-component-manager
+./run.sh            # set up venv and dependencies
+./install_plugin.sh # symlink kicad_plugin/ into KiCad's scripting/plugins/
 ```
 
-### Adding Components
+Restart KiCad
+The plugin appears under **Tools → External Plugins**.
 
-1. Enter LCSC part number in the input field:
-   - Can enter with or without 'C' prefix (e.g., "C2931873" or "2931873")
-   - Press Enter or click "Add Part"
+To uninstall, delete the symlink:
 
-2. Add comments (optional):
-   - Select a component from the list
-   - Enter comment in the comment field
-   - Press Enter or click "Update Comment"
-
-### Managing Component Lists
-
-- **Save List**: Save your current component list with comments to a JSON file
-- **Load List**: Load a previously saved component list
-- **Delete Selected**: Remove selected component from the list
-- **Clear All**: Remove all components from the list
-
-### Converting Components
-
-1. Select output directory using "Browse"
-2. Set symbol library name (default: "components")
-3. Choose whether to include 3D models (STEP format)
-4. Click "Convert" to start the conversion process
-
-### Output Structure
-
-The converter will create the following directory structure:
-```
-output_directory/
-├── footprint.pretty/      # Footprint library
-│   ├── packages3d/       # 3D models
-│   │   ├── component1.step
-│   │   └── component2.step
-│   ├── component1.kicad_mod
-│   └── component2.kicad_mod
-└── symbol/
-    └── components.kicad_sym
+```bash
+rm ~/.local/share/kicad/10.0/scripting/plugins/lcsc2kicad
 ```
 
-### Importing to KiCad
-
-1. Symbol Library:
-   - Preferences → Manage Symbol Libraries
-   - Add existing library
-   - Select `symbol/components.kicad_sym`
-
-2. Footprint Library:
-   - Preferences → Manage Footprint Libraries
-   - Add existing library
-   - Select the `.pretty` folder
-
-3. 3D Models:
-   - Automatically linked if directory structure is maintained
+---
 
 ## Credits
 
-This project combines and builds upon two excellent LCSC/JLCPCB to KiCad converters:
+Built upon:
 
-### JLC2KiCad_lib
-- Original Repository: [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) by TousstNicolas
-- Features used:
-  - Core conversion functionality
-  - Symbol generation
-  - Footprint creation
-  - 3D model handling
-- License: MIT
+- [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) by TousstNicolas — core symbol/footprint/3D model conversion (MIT)
+- [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti — LCSC component handling approach (MIT)
+- [lcsc2kicad-GUI](https://github.com/milutintech/lcsc2kicad-GUI) by milutintech — original GUI foundation (MIT)
 
-### lcsc2kicad
-- Original Repository: [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti
-- Features used:
-  - Initial inspiration
-  - LCSC component handling approach
-  - Project structure influence
-- License: MIT
 
-## Contributing
+## Changelog
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+See [CHANGELOG.md](changelog.md) for an overview of release notes.
+
+---
 
 ## License
 
-This project is released under the MIT License, matching the licenses of both original projects it builds upon.
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Component Not Found**
-   - Verify the LCSC part number is correct
-   - Check if the component exists on JLCPCB's website
-   - Make sure to use the correct format (with or without 'C' prefix)
-
-2. **Conversion Errors**
-   - Check the log output for specific error messages
-   - Verify all dependencies are installed correctly
-   - Ensure you have write permissions in the output directory
-
-3. **Import Issues**
-   - Make sure KiCad paths are set correctly
-   - Verify the library files are in the expected locations
-   - Check if all necessary files were generated
-
-### Component List Management
-
-1. **Saving Lists**
-   - Lists are saved in JSON format
-   - Include any relevant comments for future reference
-   - Use meaningful filenames for easy identification
-
-2. **Loading Lists**
-   - Make sure the JSON file is properly formatted
-   - All component numbers should be valid
-   - Comments will be preserved when loading
-
-### GUI Usage Tips
-
-1. **Adding Components**
-   - You can paste part numbers directly from JLCPCB website
-   - Use comments to track component purposes
-   - The GUI automatically handles 'C' prefix normalization
-
-2. **Batch Processing**
-   - Save commonly used component lists for quick access
-   - Use clear comments to identify component purposes
-   - Check the log output for conversion progress
-
-3. **Library Organization**
-   - Keep related components in separate list files
-   - Use meaningful comments for better organization
-   - Maintain a consistent naming scheme for saved lists
+MIT

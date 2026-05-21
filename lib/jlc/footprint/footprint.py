@@ -1,10 +1,13 @@
-import requests
 import json
 import logging
 import os
 
+import requests
 from KicadModTree import *
-from .footprint_handlers import *
+
+from .. import helper
+from ..cache import Cache
+from .footprint_handlers import handlers, mil2mm
 
 
 def create_footprint(
@@ -19,12 +22,21 @@ def create_footprint(
 ):
     logging.info("creating footprint ...")
 
+    cache = Cache(output_dir)
+
     (
         footprint_name,
         datasheet_link,
         footprint_shape,
         translation,
     ) = get_footprint_info(footprint_component_uuid)
+
+    # Reuse footprint if an identical one already exists
+    shape_hash = helper.compute_hash(json.dumps(footprint_shape))
+    existing_footprint = cache.get_footprint_name(shape_hash)
+    if existing_footprint:
+        logging.info(f"Identical footprint found: {existing_footprint}. Reusing.")
+        return existing_footprint, datasheet_link
 
     # Create the .pretty directory if it doesn't exist
     pretty_dir = os.path.join(output_dir, f"{footprint_lib}.pretty")
@@ -33,10 +45,9 @@ def create_footprint(
 
     if skip_existing:
         # check if footprint already exists:
-        if os.path.isfile(
-            os.path.join(pretty_dir, footprint_name + ".kicad_mod")
-        ):
+        if os.path.isfile(os.path.join(pretty_dir, footprint_name + ".kicad_mod")):
             logging.info(f"Footprint {footprint_name} already exists, skipping.")
+            cache.add_footprint_name(shape_hash, f"{footprint_lib}:{footprint_name}")
             return f"{footprint_lib}:{footprint_name}", datasheet_link
 
     # init kicad footprint
@@ -54,6 +65,7 @@ def create_footprint(
             model_dir,
             origin,
             models,
+            cache,
         ):
             self.max_X, self.max_Y, self.min_X, self.min_Y = (
                 -10000,
@@ -68,6 +80,7 @@ def create_footprint(
             self.model_dir = model_dir
             self.origin = origin
             self.models = models
+            self.cache = cache
 
     footprint_info = footprint_info(
         footprint_name=footprint_name,
@@ -77,6 +90,7 @@ def create_footprint(
         model_dir=model_dir,
         origin=translation,
         models=models,
+        cache=cache,
     )
 
     # for each line in data : use the appropriate handler
@@ -152,14 +166,18 @@ def create_footprint(
     file_handler.writeFile(f"{pretty_dir}/{footprint_name}.kicad_mod")
     logging.info(f"created '{pretty_dir}/{footprint_name}.kicad_mod'")
 
+    # Add to cache
+    cache.add_footprint_name(shape_hash, f"{footprint_lib}:{footprint_name}")
+
     # return the datasheet link and footprint name to be linked with the symbol
     return (f"{footprint_lib}:{footprint_name}", datasheet_link)
 
 
 def get_footprint_info(footprint_component_uuid):
-    # fetch the component data from easyeda library
-    response = requests.get(
-        f"https://easyeda.com/api/components/{footprint_component_uuid}"
+    session = helper.get_easyeda_session()
+    response = session.get(
+        f"https://easyeda.com/api/components/{footprint_component_uuid}",
+        headers=helper.EASYEDA_HEADERS,
     )
 
     if response.status_code == requests.codes.ok:
@@ -175,7 +193,7 @@ def get_footprint_info(footprint_component_uuid):
     y = data["result"]["dataStr"]["head"]["y"]
     try:
         datasheet_link = data["result"]["dataStr"]["head"]["c_para"]["link"]
-    except:
+    except (KeyError, TypeError):
         datasheet_link = ""
         logging.warning("Could not retrieve datasheet link from EASYEDA")
 

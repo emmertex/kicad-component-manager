@@ -1,17 +1,68 @@
-import requests
 import logging
 import os
 import re
+
+import requests
 from KicadModTree import *
+
+from .. import helper
+from ..helper import mil2mm
 
 wrl_header = """#VRML V2.0 utf8
 #created by JLC2KiCad_lib using the JLCPCB library
 #for more info see https://github.com/TousstNicolas/JLC2KICAD_lib
 """
 
+_dimensions_cache = {}
 
-def mil2mm(data):
-    return float(data) / 3.937
+
+def get_3d_model_dimensions(component_uuid):
+    """
+    Fetch the 3D model OBJ-like data from EasyEDA and calculate its dimensions.
+    Returns (dim_x, dim_y, dim_z) in mm, or None if failed.
+    """
+    if component_uuid in _dimensions_cache:
+        return _dimensions_cache[component_uuid]
+
+    try:
+        session = helper.get_easyeda_session()
+        response = session.get(
+            f"https://easyeda.com/analyzer/api/3dmodel/{component_uuid}",
+            headers=helper.EASYEDA_HEADERS,
+            timeout=10,
+        )
+        if response.status_code != requests.codes.ok:
+            return None
+
+        text = response.content.decode()
+        vertices = re.findall(r"v (.*?)\n", text)
+        if not vertices:
+            return None
+
+        min_x = min_y = min_z = float("inf")
+        max_x = max_y = max_z = float("-inf")
+
+        for v in vertices:
+            v_parts = v.split()
+            if len(v_parts) < 3:
+                continue
+            try:
+                x, y, z = map(float, v_parts[:3])
+            except ValueError:
+                continue
+            min_x = min(min_x, x)
+            max_x = max(max_x, x)
+            min_y = min(min_y, y)
+            max_y = max(max_y, y)
+            min_z = min(min_z, z)
+            max_z = max(max_z, z)
+
+        dims = (max_x - min_x, max_y - min_y, max_z - min_z)
+        _dimensions_cache[component_uuid] = dims
+        return dims
+    except Exception as e:
+        logging.warning(f"Could not calculate 3D model dimensions: {e}")
+        return None
 
 
 def get_StepModel(
@@ -29,32 +80,62 @@ def get_StepModel(
     # https://modules.lceda.cn/smt-gl-engine/0.8.22.6032922c/smt-gl-engine.js
     # and points to the bucket containing the step files.
 
-    response = requests.get(
-        f"https://modules.easyeda.com/qAxj6KHrDKw4blvCG8QJPs7Y/{component_uuid}"
+    session = helper.get_easyeda_session()
+    response = session.get(
+        f"https://modules.easyeda.com/qAxj6KHrDKw4blvCG8QJPs7Y/{component_uuid}",
+        headers=helper.EASYEDA_HEADERS,
     )
 
     if not response.status_code == requests.codes.ok:
         logging.error("request error, no Step model found")
         return
 
-    ensure_footprint_lib_directories_exist(footprint_info)
-    filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.step"
-    with open(filename, "wb") as f:
-        f.write(response.content)
+    step_hash = helper.compute_hash(response.content)
+    existing_step_path = footprint_info.cache.get_step_path(step_hash)
 
-    logging.info(f"STEP model created at {filename}")
+    if existing_step_path and os.path.exists(existing_step_path):
+        logging.info(f"STEP model already exists at {existing_step_path}. Reusing.")
+        filename = existing_step_path
+    else:
+        ensure_footprint_lib_directories_exist(footprint_info)
+        filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.step"
+        with open(filename, "wb") as f:
+            f.write(response.content)
+        logging.info(f"STEP model created at {filename}")
+        footprint_info.cache.add_step_path(step_hash, filename)
 
+    reused_basename = os.path.basename(filename)
     if footprint_info.model_base_variable:
         if footprint_info.model_base_variable.startswith("$"):
-            path_name = f'"{footprint_info.model_base_variable}/{footprint_info.footprint_name}.step"'
+            path_name = f'"{footprint_info.model_base_variable}/{reused_basename}"'
         else:
-            path_name = f'"$({footprint_info.model_base_variable})/{footprint_info.footprint_name}.step"'
+            path_name = f'"$({footprint_info.model_base_variable})/{reused_basename}"'
     else:
         path_name = filename
 
     translationX = (translationX - footprint_info.origin[0]) / 100
     translationY = -(translationY - footprint_info.origin[1]) / 100
     translationZ = float(translationZ) / 100
+
+    # Validate offsets against model dimensions
+    dims = get_3d_model_dimensions(component_uuid)
+    if dims:
+        dim_x, dim_y, dim_z = dims
+        if abs(translationX) > dim_x / 2:
+            logging.warning(
+                f"STEP model X offset ({translationX:.2f}) exceeds half dimension ({dim_x / 2:.2f}). Resetting to 0."
+            )
+            translationX = 0
+        if abs(translationY) > dim_y / 2:
+            logging.warning(
+                f"STEP model Y offset ({translationY:.2f}) exceeds half dimension ({dim_y / 2:.2f}). Resetting to 0."
+            )
+            translationY = 0
+        if abs(translationZ) > dim_z / 2:
+            logging.warning(
+                f"STEP model Z offset ({translationZ:.2f}) exceeds half dimension ({dim_z / 2:.2f}). Resetting to 0."
+            )
+            translationZ = 0
 
     kicad_mod.append(
         Model(
@@ -77,8 +158,10 @@ def get_WrlModel(
 ):
     logging.info("Creating WRL model ...")
 
-    response = requests.get(
-        f"https://easyeda.com/analyzer/api/3dmodel/{component_uuid}"
+    session = helper.get_easyeda_session()
+    response = session.get(
+        f"https://easyeda.com/analyzer/api/3dmodel/{component_uuid}",
+        headers=helper.EASYEDA_HEADERS,
     )
     if response.status_code == requests.codes.ok:
         text = response.content.decode()
@@ -150,16 +233,16 @@ def get_WrlModel(
         shape_str = f"""
 Shape{{
 	appearance Appearance {{
-		material  Material 	{{ 
-			diffuseColor {' '.join(material['diffuseColor'])} 
-			specularColor {' '.join(material['specularColor'])}
+		material  Material 	{{
+			diffuseColor {" ".join(material["diffuseColor"])}
+			specularColor {" ".join(material["specularColor"])}
 			ambientIntensity 0.2
-			transparency {material['transparency']}
+			transparency {material["transparency"]}
 			shininess 0.5
 		}}
 	}}
 	geometry IndexedFaceSet {{
-		ccw TRUE 
+		ccw TRUE
 		solid FALSE
 		coord DEF co Coordinate {{
 			point [
@@ -174,17 +257,25 @@ Shape{{
 
         wrl_content += shape_str
 
-    ensure_footprint_lib_directories_exist(footprint_info)
+    wrl_hash = helper.compute_hash(wrl_content)
+    existing_wrl_path = footprint_info.cache.get_wrl_path(wrl_hash)
 
-    filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.wrl"
-    with open(filename, "w") as f:
-        f.write(wrl_content)
+    if existing_wrl_path and os.path.exists(existing_wrl_path):
+        logging.info(f"WRL model already exists at {existing_wrl_path}. Reusing.")
+        filename = existing_wrl_path
+    else:
+        ensure_footprint_lib_directories_exist(footprint_info)
+        filename = f"{footprint_info.output_dir}/{footprint_info.footprint_lib}/{footprint_info.model_dir}/{footprint_info.footprint_name}.wrl"
+        with open(filename, "w") as f:
+            f.write(wrl_content)
+        footprint_info.cache.add_wrl_path(wrl_hash, filename)
 
+    reused_basename = os.path.basename(filename)
     if footprint_info.model_base_variable:
         if footprint_info.model_base_variable.startswith("$"):
-            path_name = f'"{footprint_info.model_base_variable}/{footprint_info.footprint_name}.wrl"'
+            path_name = f'"{footprint_info.model_base_variable}/{reused_basename}"'
         else:
-            path_name = f'"$({footprint_info.model_base_variable})/{footprint_info.footprint_name}.wrl"'
+            path_name = f'"$({footprint_info.model_base_variable})/{reused_basename}"'
     else:
         dirname = os.getcwd().replace("\\", "/").replace("/footprint", "")
         if os.path.isabs(filename):
@@ -195,6 +286,26 @@ Shape{{
     translationX = (translationX - footprint_info.origin[0]) / 100
     translationY = -(translationY - footprint_info.origin[1]) / 100
     translationZ = float(translationZ) / 100
+
+    # Validate offsets against model dimensions
+    dims = get_3d_model_dimensions(component_uuid)
+    if dims:
+        dim_x, dim_y, dim_z = dims
+        if abs(translationX) > dim_x / 2:
+            logging.warning(
+                f"WRL model X offset ({translationX:.2f}) exceeds half dimension ({dim_x / 2:.2f}). Resetting to 0."
+            )
+            translationX = 0
+        if abs(translationY) > dim_y / 2:
+            logging.warning(
+                f"WRL model Y offset ({translationY:.2f}) exceeds half dimension ({dim_y / 2:.2f}). Resetting to 0."
+            )
+            translationY = 0
+        if abs(translationZ) > dim_z / 2:
+            logging.warning(
+                f"WRL model Z offset ({translationZ:.2f}) exceeds half dimension ({dim_z / 2:.2f}). Resetting to 0."
+            )
+            translationZ = 0
 
     # Check if a model has already been added to the footprint to prevent duplicates
     if any(isinstance(child, Model) for child in kicad_mod.getAllChilds()):
@@ -210,7 +321,7 @@ Shape{{
                 rotate=[-float(axis_rotation) for axis_rotation in rotation.split(",")],
             )
         )
-        logging.info(f"added {path_name} to footprintc")
+        logging.info(f"added {path_name} to footprint")
 
 
 def ensure_footprint_lib_directories_exist(footprint_info):

@@ -1,0 +1,5 @@
+requests
+lxml
+KicadModTree
+PySide6
+bs4

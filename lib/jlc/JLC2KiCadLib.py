@@ -1,31 +1,41 @@
-import sys
-sys.path.append('.')  # Add current directory to path
-
-import requests
+import argparse
 import json
 import logging
-import argparse
+import sys
 
-__version__ = "1.0.0"
+import requests
 
-# Update imports
-try:
-    from JLC2KiCadLib import helper
-    from JLC2KiCadLib.footprint.footprint import create_footprint, get_footprint_info
-    from JLC2KiCadLib.symbol.symbol import create_symbol
-except ImportError:
-    import helper
-    from footprint.footprint import create_footprint, get_footprint_info
-    from symbol.symbol import create_symbol
+from . import component_info, helper, pdf_downloader
+from .footprint.footprint import create_footprint, get_footprint_info
+from .symbol.symbol import create_symbol
+
+__version__ = "1.0.32"
 
 
 def add_component(component_id, args):
     logging.info(f"creating library for component {component_id}")
-    data = json.loads(
-        requests.get(
-            f"https://easyeda.com/api/products/{component_id}/svgs"
-        ).content.decode()
-    )
+    url = f"https://easyeda.com/api/products/{component_id}/svgs"
+    session = helper.get_easyeda_session()
+    response = session.get(url, headers=helper.EASYEDA_HEADERS)
+
+    if response.status_code != 200:
+        logging.error(
+            f"Failed to fetch SVG data from EasyEDA API. HTTP status code: {response.status_code}\n"
+            f"URL: {url}\n"
+            f"Response: {response.text[:500]}"
+        )
+        return ()
+
+    try:
+        data = json.loads(response.content.decode())
+    except json.JSONDecodeError as e:
+        logging.error(
+            f"Failed to parse JSON response from EasyEDA API.\n"
+            f"URL: {url}\n"
+            f"Response: {response.text[:500]}\n"
+            f"JSON decode error: {e}"
+        )
+        return ()
 
     if not data["success"]:
         logging.error(
@@ -35,6 +45,10 @@ def add_component(component_id, args):
 
     footprint_component_uuid = data["result"][-1]["component_uuid"]
     symbol_component_uuid = [i["component_uuid"] for i in data["result"][:-1]]
+
+    # Extract component information from LCSC
+    logging.info(f"Extracting component information for {component_id}")
+    component_info_data = component_info.extract_component_info(component_id)
 
     if args.footprint_creation:
         footprint_name, datasheet_link = create_footprint(
@@ -51,6 +65,20 @@ def add_component(component_id, args):
         _, datasheet_link, _, _ = get_footprint_info(footprint_component_uuid)
         footprint_name = ""
 
+    # Download PDF if requested
+    if args.download_pdf:
+        pdf_success, pdf_path, pdf_error = pdf_downloader.download_pdf(
+            component_id, args.output_dir, args.pdf_dir
+        )
+        if pdf_success:
+            # Update datasheet link to point to local PDF
+            datasheet_link = pdf_downloader.update_datasheet_link(
+                datasheet_link, component_id, args.pdf_dir
+            )
+            logging.info(f"Updated datasheet link to local PDF: {datasheet_link}")
+        else:
+            logging.warning(f"PDF download failed for {component_id}: {pdf_error}")
+
     if args.symbol_creation:
         create_symbol(
             symbol_component_uuid=symbol_component_uuid,
@@ -63,6 +91,7 @@ def add_component(component_id, args):
             output_dir=args.output_dir,
             component_id=component_id,
             skip_existing=args.skip_existing,
+            component_info_data=component_info_data,
         )
 
 
@@ -177,10 +206,25 @@ def main():
     )
 
     parser.add_argument(
+        "--download_pdf",
+        dest="download_pdf",
+        action="store_true",
+        help="Download PDF datasheets from LCSC and update symbol links",
+    )
+
+    parser.add_argument(
+        "-pdf_dir",
+        dest="pdf_dir",
+        type=str,
+        default="pdf",
+        help='Set directory for storing PDF datasheets, default is "pdf" (relative to OUTPUT_DIR)',
+    )
+
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
-        help="Print versin number and exit",
+        help="Print version number and exit",
     )
 
     args = parser.parse_args()
