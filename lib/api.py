@@ -202,27 +202,35 @@ class LCSCScraper:
 
 
 def fetch_component_data(pid: str, api_key: Optional[str] = None) -> Dict[str, Any]:
-    """Unified function to fetch component data from all available sources."""
-    # 1. Try JLCPCB API if key provided
-    if api_key:
+    """Unified function to fetch component data from all available sources with fallbacks."""
+    # 1. Try JLCPCB API (always, but use key if provided)
+    try:
         client = JLCPCBAPIWrapper(api_key)
         data = client.get_component_data(pid)
         if data:
             logger.info(f"Fetched {pid} data from JLCPCB API")
             return data
+    except Exception as e:
+        logger.debug(f"JLCPCB API fallback triggered: {e}")
 
     # 2. Try LCSC JSON API (best free source)
-    lcsc_api = LCSCAPIClient()
-    data = lcsc_api.get_component_data(pid)
-    if data:
-        logger.info(f"Fetched {pid} data from LCSC JSON API")
-        return data
+    try:
+        lcsc_api = LCSCAPIClient()
+        data = lcsc_api.get_component_data(pid)
+        if data:
+            logger.info(f"Fetched {pid} data from LCSC JSON API")
+            return data
+    except Exception as e:
+        logger.debug(f"LCSC JSON API fallback triggered: {e}")
 
     # 3. Fallback to HTML Scraper
-    scraper = LCSCScraper()
-    data = scraper.get_component_data(pid)
-    if data:
-        logger.info(f"Fetched {pid} data from LCSC HTML Scraper")
-        return data
+    try:
+        scraper = LCSCScraper()
+        data = scraper.get_component_data(pid)
+        if data:
+            logger.info(f"Fetched {pid} data from LCSC HTML Scraper")
+            return data
+    except Exception as e:
+        logger.debug(f"LCSC scraper fallback triggered: {e}")
 
     return {}

@@ -292,17 +292,20 @@ class Worker(QThread):
             # Note: ExporterSymbolKicad from easyeda2kicad already adds:
             # Reference, Value, Footprint, Datasheet, Manufacturer, MPN, LCSC Part, ki_keywords, Description.
             # We'll update ee_symbol.info directly for these built-in fields.
-            ee_symbol.info.manufacturer = (
+
+            # Use LCSC data if available, fallback to EasyEDA CAD data
+            mfr = (
                 info.get("mfr")
                 or info.get("manufacturer")
                 or ee_symbol.info.manufacturer
             )
+            desc = info.get("description") or ee_symbol.info.description
+
+            ee_symbol.info.manufacturer = mfr
             ee_symbol.info.package = (
                 info.get("package") or info.get("Package") or ee_symbol.info.package
             )
-            ee_symbol.info.description = (
-                info.get("description") or ee_symbol.info.description
-            )
+            ee_symbol.info.description = desc
             ee_symbol.info.lcsc_id = pid
 
             # Value
@@ -317,13 +320,10 @@ class Worker(QThread):
             custom_fields = {
                 "LCSC": pid,  # Legacy field name some users might expect
                 "Category": category,
-                "Description": (info.get("description") or ee_symbol.info.description),
-                "Manufacturer": (
-                    info.get("mfr")
-                    or info.get("manufacturer")
-                    or ee_symbol.info.manufacturer
-                ),
+                "Description": desc,
+                "Manufacturer": mfr,
             }
+
             if info.get("attributes"):
                 custom_fields["Key_Attributes"] = info.get("attributes")
             if info.get("stock"):
@@ -440,11 +440,14 @@ class Worker(QThread):
             log(f"Fetching LCSC data for {pid}…")
             info = fetch_component_data(pid, cfg.get("jlcpcb_api_key"))
             if not info:
-                raise RuntimeError("No data returned from API sources")
+                log("Warning: No metadata found on LCSC/JLCPCB (using minimal data)")
+                info = {}
             c["comp_info"] = {**(c.get("comp_info") or {}), **info}
-            log(
-                f"API OK — stock={info.get('stock', '?')}  price={info.get('price', '?')}"
-            )
+            if info:
+                log(
+                    f"API OK — stock={info.get('stock', '?')}  price={info.get('price', '?')}"
+                )
+
             cat = resolve_category(info.get("category", ""))
             self.step_done.emit(
                 pid,
@@ -452,16 +455,21 @@ class Worker(QThread):
                 True,
                 {
                     "category": cat,
-                    "mfr": info.get("mfr", ""),
-                    "package": info.get("package", ""),
+                    "mfr": (info.get("mfr") or info.get("manufacturer") or ""),
+                    "package": (info.get("package") or info.get("Package") or ""),
+                    "description": (info.get("description") or ""),
                     "attributes": info.get("attributes", ""),
                     "price": info.get("price", ""),
                     "stock": info.get("stock", ""),
                 },
             )
         except Exception as e:
-            log(f"JLC fetch error: {e}")
-            self.step_done.emit(pid, "jlc", False, {"error": str(e)})
+            log(f"JLC fetch warning: {e}")
+            # Still mark as "done" (but maybe not success?)
+            # Actually, let's keep it as SUCCESS if we want to continue,
+            # or FAILED if we want to show a red cross.
+            # Given it's a fallback, let's show SUCCESS but log the warning.
+            self.step_done.emit(pid, "jlc", True, {"error": str(e)})
 
     def _do_scrape(self, pid):
         self.log_line.emit(pid, f"Scraping LCSC data for {pid}…")
