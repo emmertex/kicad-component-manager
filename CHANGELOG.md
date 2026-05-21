@@ -1,14 +1,18 @@
 ## v2.0 - KiCad Library Manager
 
-### v2.0.1 - Bug fixes
+### v2.0.0 - New Name, KiCad Library Manager - Now with BOM Manager
 
-- **Fixed**: Logging handler leak in Worker — `addHandler` was called before the `try` block in `_do_footprint`, `_do_symbol`, and `_do_pdf`, so if signal emission raised an exception the handler was never removed, causing duplicate log entries on repeated operations.
-- **Fixed**: `KeyError` crash in JLCPCB API wrapper — parameter dicts with missing `name` or `value` keys would crash the entire fetch; now uses `.get()` with filtering.
-- **Fixed**: `AttributeError` crash in BOM `_update_total` — table items that are `None` are now skipped safely (consistent with the existing guard in `_update_row_subtotal`).
+- **BOM Manager**: 
+  - Note: While the Library Manager is completely standalone, and can be launched from within KiCad, the BOM Manager must be launched from within KiCad.  This means you must install it as a plugin to use these features.
+  - Launching the BOM manager within KiCad shows all components, quantities, details pricing and alike.
+  - Immediately see which are missing STEP or Component numbers.
+  - Fetch latest pricing, and availability from JLCPCB.
+  - Add LCSC part numbers to parts, and fetch latest pricing and availability from JLCPCB.
+  - Add LCSC part numbers, and replace the component with the new library part.
+  - Export as a CSV file.
+- Clean up and organise code more, much easier to maintain.
+- Bug Fixes.
 
-### v2.0.0 - New project name, with big goals.
-
-- Clean up and organise code more, with intention of support of more suppliers.
 
 ## v1.3 - KiCAD Library Managenent
 
