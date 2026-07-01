@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -56,6 +57,7 @@ from gui.models import (
     CB_DESC,
     CB_FP,
     CB_JLC,
+    CB_LINKED,
     CB_PART,
     CB_PDF,
     CB_PRICE,
@@ -81,15 +83,19 @@ from gui.models import (
 from gui.worker import Worker
 from lib.bulk import normalize_pid, parse_parts
 from lib.categories import FINAL_CATEGORIES
+from lib.kicad_escape import KICAD_QUOTED_VALUE_RE
 from lib.helpers import (
     PDF_MIN_BYTES,
     _check_existing,
     _delete_from_lib,
+    _find_block_end,
     _find_sym_file,
     _parse_sym_file,
     _update_sym_lib_table,
     _update_symbol_property,
     ensure_libraries,
+    list_sym_files,
+    sync_libraries,
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -99,6 +105,14 @@ MAX_RECENT = 10
 
 
 class SettingsDialog(QDialog):
+    # (stored value, display label) for the library organisation mode.
+    LIB_MODE_LABELS = (
+        ("organised", "Organised — per-category libraries"),
+        ("consolidated", "Consolidated — single 'components' library"),
+        ("both_organised", "Both (Organised Primary) — list from category libs"),
+        ("both_consolidated", "Both (Consolidated Primary) — list from 'components'"),
+    )
+
     def __init__(
         self,
         parent,
@@ -110,6 +124,7 @@ class SettingsDialog(QDialog):
         output_dir: str = "",
         recent_dirs: list = None,
         allow_edit_category: bool = False,
+        lib_mode: str = "organised",
     ):
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -139,6 +154,35 @@ class SettingsDialog(QDialog):
         # Library Options
         lib_group = QGroupBox("Library Options")
         lib_form = QFormLayout(lib_group)
+
+        # Library organisation mode. Stored value is kept in the combo's
+        # userData so labels can stay human-friendly.
+        self._mode_combo = QComboBox()
+        for value, label in self.LIB_MODE_LABELS:
+            self._mode_combo.addItem(label, value)
+        idx = self._mode_combo.findData(lib_mode)
+        self._mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._mode_combo.setToolTip(
+            "Organised: per-category symbol libraries.\n"
+            "Consolidated: all symbols in one 'components' library (pre-v2 layout).\n"
+            "Both: write symbols to BOTH the category libraries and 'components' "
+            "for backward compatibility. The 'Primary' chooses which set this app "
+            "lists from (BOM view / Load Library) so parts aren't shown twice — "
+            "KiCad still sees both.\n\n"
+            "Footprints, 3D models and datasheets are shared across all modes."
+        )
+        lib_form.addRow("Library Mode:", self._mode_combo)
+
+        # One-shot migration: copy every existing symbol into both layouts.
+        sync_btn = QPushButton("Sync Libraries")
+        sync_btn.setToolTip(
+            "Copy all existing symbols into BOTH the per-category libraries and "
+            "the consolidated 'components' library, so older and newer projects "
+            "resolve every part. Footprints/3D/datasheets are already shared."
+        )
+        sync_btn.clicked.connect(self._sync_libraries)
+        lib_form.addRow("", sync_btn)
+
         self._prefix_edit = QLineEdit(lib_prefix)
         self._prefix_edit.setPlaceholderText("e.g. MyProject  (leave blank for none)")
         lib_form.addRow("Library Prefix:", self._prefix_edit)
@@ -199,6 +243,40 @@ class SettingsDialog(QDialog):
                 self._loc_combo.insertItem(0, d)
             self._loc_combo.setCurrentText(d)
 
+    def _sync_libraries(self):
+        out = self.output_dir
+        if not out or not Path(out).exists():
+            QMessageBox.warning(
+                self, "No Library", "Set a valid Library Location first."
+            )
+            return
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            parts, copies = sync_libraries(out, self.lib_prefix)
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Sync Failed", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        # Refresh the manager list / open BOM window so they reflect the new
+        # on-disk state without needing a manual reload.
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "refresh_after_sync"):
+            parent.refresh_after_sync(out)
+        if copies:
+            msg = (
+                f"Copied {copies} missing symbol(s) into the other layout.\n"
+                f"All {parts} symbol(s) are now in both the category libraries "
+                f"and 'components'."
+            )
+        else:
+            msg = (
+                f"Already in sync — all {parts} symbol(s) are present in both "
+                f"the category libraries and 'components'. Nothing to copy."
+            )
+        QMessageBox.information(self, "Sync Libraries", msg)
+
     @property
     def output_dir(self):
         return self._loc_combo.currentText().strip()
@@ -210,6 +288,10 @@ class SettingsDialog(QDialog):
         if cur and cur not in dirs:
             dirs.insert(0, cur)
         return list(dict.fromkeys(dirs))[:MAX_RECENT]
+
+    @property
+    def lib_mode(self):
+        return self._mode_combo.currentData() or "organised"
 
     @property
     def lib_prefix(self):
@@ -260,14 +342,216 @@ class BulkImportDialog(QDialog):
         return self._text.toPlainText().splitlines()
 
 
+def _patch_pcb_footprint_refs(content: str, refs: list, new_fp: str) -> str:
+    """Replace the footprint lib:name in a .kicad_pcb file for the given refs.
+
+    Handles both KiCad 6+ (property "Reference") and KiCad 5 (fp_text reference) formats.
+    """
+    for ref in refs:
+        # KiCad 6+: (property "Reference" "R1" ...)
+        # KiCad 5:  (fp_text reference "R1" ...)
+        ref_pat = re.compile(
+            r'\((?:property\s+"Reference"|fp_text\s+reference)\s+"'
+            + re.escape(ref)
+            + r'"'
+        )
+        matched = False
+        for m in ref_pat.finditer(content):
+            before = content[: m.start()]
+            # Search backwards for the enclosing (footprint "lib:name" declaration.
+            # Also handle (module "lib:name" for KiCad 5.
+            fp_matches = list(
+                re.finditer(
+                    r'\((?:footprint|module)\s+"' + KICAD_QUOTED_VALUE_RE + r'"',
+                    before,
+                )
+            )
+            if not fp_matches:
+                continue
+            last_m = fp_matches[-1]
+            old_str = last_m.group(0)
+            # Preserve footprint vs module keyword so we don't break older files.
+            kw = "footprint" if old_str.startswith("(footprint") else "module"
+            new_str = f'({kw} "{new_fp}"'
+            content = (
+                content[: last_m.start()]
+                + new_str
+                + content[last_m.start() + len(old_str) :]
+            )
+            matched = True
+            break
+        if not matched:
+            # ref not found in PCB — skip silently
+            pass
+    return content
+
+
+def _sch_symbol_blocks(content: str) -> list:
+    """Scan a .kicad_sch file forward and return (start, end) for every
+    placed-instance symbol block — i.e. blocks that open with
+    (symbol (lib_id "...").  Library-definition blocks inside (lib_symbols ...)
+    open with (symbol "Name" ...) and are skipped.
+    Results are in file order (ascending start position).
+    """
+    sym_pat = re.compile(r'\(symbol\s+\(lib_id\b')
+    blocks = []
+    pos = 0
+    while pos < len(content):
+        m = sym_pat.search(content, pos)
+        if not m:
+            break
+        start = m.start()
+        end = _find_block_end(content, start)
+        if end == -1:
+            pos = m.end()
+            continue
+        blocks.append((start, end))
+        pos = end + 1
+    return blocks
+
+
+def _patch_sch_footprint_refs(content: str, refs: list, new_fp: str) -> str:
+    """Replace the Footprint property for all placed symbol blocks whose
+    Reference matches any entry in *refs*.  Handles multi-unit ICs.
+    """
+    ref_set = set(refs)
+    ref_check = re.compile(
+        r'\(property\s+"Reference"\s+"(' + KICAD_QUOTED_VALUE_RE + r')"'
+    )
+    fp_pat = re.compile(
+        r'(\(property\s+"Footprint"\s+")' + KICAD_QUOTED_VALUE_RE + r'(")'
+    )
+
+    patches = []
+    for start, end in _sch_symbol_blocks(content):
+        block = content[start : end + 1]
+        m = ref_check.search(block)
+        if m and m.group(1) in ref_set:
+            new_block, count = fp_pat.subn(
+                lambda fm: fm.group(1) + new_fp + fm.group(2), block, count=1
+            )
+            if count:
+                patches.append((start, end, new_block))
+
+    for start, end, new_block in reversed(patches):
+        content = content[:start] + new_block + content[end + 1 :]
+    return content
+
+
+def _patch_sch_lib_id_refs(content: str, refs: list, new_lib_id: str) -> str:
+    """Replace (lib_id "...") for all placed symbol blocks whose Reference
+    matches any entry in *refs*.  Handles multi-unit ICs (each unit block
+    has its own lib_id entry that must be updated).
+    """
+    ref_set = set(refs)
+    ref_check = re.compile(
+        r'\(property\s+"Reference"\s+"(' + KICAD_QUOTED_VALUE_RE + r')"'
+    )
+    lib_id_pat = re.compile(r'(\(lib_id\s+")' + KICAD_QUOTED_VALUE_RE + r'(")')
+
+    patches = []
+    for start, end in _sch_symbol_blocks(content):
+        block = content[start : end + 1]
+        m = ref_check.search(block)
+        if m and m.group(1) in ref_set:
+            new_block, count = lib_id_pat.subn(
+                lambda fm: fm.group(1) + new_lib_id + fm.group(2), block, count=1
+            )
+            if count:
+                patches.append((start, end, new_block))
+
+    for start, end, new_block in reversed(patches):
+        content = content[:start] + new_block + content[end + 1 :]
+    return content
+
+
+def _extract_sym_block_for_schematic(
+    sym_file: Path, sym_name: str, lib_nickname: str
+) -> "str | None":
+    """Extract a symbol's definition from a .kicad_sym file and return it
+    formatted for embedding in a schematic lib_symbols section.
+    The top-level symbol name gets the library prefix; sub-symbols keep their
+    short names (KiCad 6+ convention)."""
+    try:
+        content = sym_file.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    # Find top-level symbol (minimum indentation — sub-symbols are nested deeper)
+    pat = re.compile(
+        r'^([ \t]*)\(symbol\s+"' + re.escape(sym_name) + r'"', re.MULTILINE
+    )
+    all_m = list(pat.finditer(content))
+    if not all_m:
+        return None
+    min_indent = min(len(m.group(1)) for m in all_m)
+    top_m = next((m for m in all_m if len(m.group(1)) == min_indent), None)
+    if not top_m:
+        return None
+    start = top_m.start()
+    end = _find_block_end(content, start)
+    if end == -1:
+        return None
+    block = content[start : end + 1]
+    # Rename only the top-level opening token — sub-symbols keep short names
+    block = block.replace(f'(symbol "{sym_name}"', f'(symbol "{lib_nickname}:{sym_name}"', 1)
+    return block.strip()
+
+
+def _ensure_sym_in_lib_symbols(content: str, sym_block: str) -> str:
+    """Insert (or replace) a symbol definition in the schematic lib_symbols section
+    so KiCad can resolve the new lib_id without reporting 'symbol not found'."""
+    name_m = re.match(r'\(symbol\s+"(' + KICAD_QUOTED_VALUE_RE + r')"', sym_block.strip())
+    if not name_m:
+        return content
+    lib_id = name_m.group(1)
+
+    ls_m = re.search(r'\(lib_symbols\b', content)
+    if not ls_m:
+        return content
+    ls_start = ls_m.start()
+    ls_end = _find_block_end(content, ls_start)
+    if ls_end == -1:
+        return content
+
+    ls_content = content[ls_start : ls_end + 1]
+
+    # Remove any existing definition for this lib_id (avoid duplicates)
+    existing = re.search(r'\(symbol\s+"' + re.escape(lib_id) + r'"', ls_content)
+    if existing:
+        sym_s = existing.start()
+        sym_e = _find_block_end(ls_content, sym_s)
+        if sym_e != -1:
+            ls_content = ls_content[:sym_s] + ls_content[sym_e + 1 :]
+
+    # Insert before the closing ) of lib_symbols, indented 2 spaces
+    indented = "\n  " + sym_block.strip().replace("\n", "\n  ") + "\n"
+    ls_content = ls_content[:-1] + indented + ")"
+
+    return content[:ls_start] + ls_content + content[ls_end + 1 :]
+
+
 class BOMWindow(QMainWindow):
-    def __init__(self, bom_data: list, output_dir: str = ""):
+    def __init__(
+        self,
+        bom_data: list,
+        output_dir: str = "",
+        pcb_file: str = "",
+        lib_mode: str = "organised",
+    ):
         super().__init__()
         self.setWindowTitle("KiCad BOM Manager")
         self.resize(1200, 750)
         self._bom_data = bom_data
         self._output_dir = output_dir
+        self._pcb_file = pcb_file
+        self._lib_mode = lib_mode
         self._parts: dict[str, PartState] = {}
+        self._row_refs: dict[int, list] = {}
+        # ref -> {"lib": ..., "fp": ...} from PCB scan data
+        self._pcb_refs: dict[str, dict] = {
+            p["ref"]: {"lib": p.get("lib", ""), "fp": p.get("fp", "")}
+            for p in bom_data
+        }
         self._worker = Worker()
         self._worker.step_started.connect(self._on_started)
         self._worker.step_done.connect(self._on_done)
@@ -297,7 +581,7 @@ class BOMWindow(QMainWindow):
         self._tbl.setColumnWidth(CB_DESC, 250)
         self._tbl.setColumnWidth(CB_QTY, 50)
         self._tbl.setColumnWidth(CB_STOCK, 80)
-        for c in (CB_VALID, CB_SYM, CB_FP, CB_STEP, CB_PDF, CB_JLC):
+        for c in (CB_VALID, CB_SYM, CB_FP, CB_STEP, CB_PDF, CB_JLC, CB_LINKED):
             self._tbl.setColumnWidth(c, 28)
             hdr.setSectionResizeMode(c, QHeaderView.Fixed)
         self._tbl.setColumnWidth(CB_PRICE, 80)
@@ -352,10 +636,19 @@ class BOMWindow(QMainWindow):
         self._save_lcsc_btn.clicked.connect(self._on_save_lcsc)
         av.addWidget(self._save_lcsc_btn)
 
-        self._replace_btn = QPushButton("Replace Component")
-        self._replace_btn.setToolTip("Fetch full component data and replace in library")
-        self._replace_btn.clicked.connect(self._on_replace)
-        av.addWidget(self._replace_btn)
+        self._action_btn = QPushButton("Download Component")
+        self._action_btn.setToolTip("Download component to custom library")
+        self._action_btn.setEnabled(False)
+        self._action_btn.clicked.connect(self._on_action_btn)
+        av.addWidget(self._action_btn)
+
+        self._replace_sym_btn = QPushButton("Replace Symbol")
+        self._replace_sym_btn.setToolTip(
+            "Update the schematic symbol link to use the custom library symbol"
+        )
+        self._replace_sym_btn.setEnabled(False)
+        self._replace_sym_btn.clicked.connect(self._on_replace_sym)
+        av.addWidget(self._replace_sym_btn)
 
         self._fetch_single_btn = QPushButton("Fetch Price/Stock")
         self._fetch_single_btn.setToolTip(
@@ -410,6 +703,7 @@ class BOMWindow(QMainWindow):
             groups[key]["refs"].append(p["ref"])
 
         self._tbl.setRowCount(0)
+        self._row_refs.clear()
         for key, data in groups.items():
             r = self._tbl.rowCount()
             self._tbl.insertRow(r)
@@ -417,6 +711,7 @@ class BOMWindow(QMainWindow):
             refs = sorted(data["refs"])
             qty = len(refs)
             pid = data["lcsc"] or ""
+            self._row_refs[r] = refs
 
             self._tbl.setItem(r, CB_REFS, QTableWidgetItem(", ".join(refs)))
             self._tbl.setItem(r, CB_PART, QTableWidgetItem(pid))
@@ -435,12 +730,14 @@ class BOMWindow(QMainWindow):
                 CB_JLC,
                 CB_PRICE,
                 CB_SUBTOTAL,
+                CB_LINKED,
             ):
                 self._tbl.setItem(r, c, QTableWidgetItem(""))
 
             # If we have a PID, try to load from library
             if pid:
                 self._load_part_from_lib(pid, r)
+                self._update_linked_cell(r, pid)
 
         self._update_total()
 
@@ -462,6 +759,8 @@ class BOMWindow(QMainWindow):
         state.footprint = St.SUCCESS if existing.get("fp_ok") else St.PENDING
         state.step = St.SUCCESS if existing.get("step_ok") else St.PENDING
         state.pdf = St.SUCCESS if existing.get("pdf_ok") else St.PENDING
+        if existing.get("fp_name"):
+            state.fp_name_text = existing["fp_name"]
         self._parts[pid] = state
 
         # Update cells
@@ -488,6 +787,8 @@ class BOMWindow(QMainWindow):
                             state.attributes = e.get("attributes", "")
                             state.price = e.get("price", "")
                             state.stock = e.get("stock", "")
+                            if not state.fp_name_text and e.get("footprint"):
+                                state.fp_name_text = e["footprint"]
                             state.jlc = (
                                 St.SUCCESS
                                 if (state.price or state.stock)
@@ -525,6 +826,7 @@ class BOMWindow(QMainWindow):
 
     def _on_row_changed(self, row, _col, _pr, _pc):
         if row < 0:
+            self._update_action_btn(-1)
             return
         pid = self._tbl.item(row, CB_PART).text()
         self._lcsc_input.setText(pid)
@@ -544,6 +846,9 @@ class BOMWindow(QMainWindow):
                     w.setCurrentText(val)
                 else:
                     w.setText(val)
+
+        self._update_action_btn(row)
+        self._update_sym_btn(row)
 
     def _set_cell(self, pid, step, st: St, tip=""):
         # Find row(s) for this pid
@@ -705,20 +1010,22 @@ class BOMWindow(QMainWindow):
                     self._update_row_subtotal(r)
                     self._update_total()
 
-                # After any successful step, try to reload metadata from symbol
                 if step == "symbol" and ok:
-                    # Update description if present
                     desc = extra.get("description", "")
                     if desc:
                         self._tbl.item(r, CB_DESC).setText(desc)
 
+                if step == "footprint" and ok:
+                    fp_name = extra.get("fp_name", "")
+                    if fp_name and s:
+                        s.fp_name_text = fp_name
+
+                self._update_linked_cell(r, pid)
                 break
 
-        if (
-            self._tbl.currentRow() >= 0
-            and self._tbl.item(self._tbl.currentRow(), CB_PART).text() == pid
-        ):
-            self._on_row_changed(self._tbl.currentRow(), 0, 0, 0)
+        cur = self._tbl.currentRow()
+        if cur >= 0 and self._tbl.item(cur, CB_PART).text() == pid:
+            self._on_row_changed(cur, 0, 0, 0)
 
     def _on_scrape_done(self, pid, data):
         pass
@@ -737,28 +1044,122 @@ class BOMWindow(QMainWindow):
 
         self._tbl.item(row, CB_PART).setText(new_pid)
         self._load_part_from_lib(new_pid, row)
+        self._update_linked_cell(row, new_pid)
+        self._update_action_btn(row)
+        self._update_sym_btn(row)
         self._update_total()
 
-    def _on_replace(self):
+    def _is_linked(self, pid: str, refs: list) -> "bool | None":
+        """Return True if all PCB refs use our custom library footprint, False if not, None if unknown."""
+        if not pid or not refs:
+            return None
+        state = self._parts.get(pid)
+        if not state or not state.fp_name_text:
+            return None
+        if ":" not in state.fp_name_text:
+            return None
+        our_lib, our_fp_name = state.fp_name_text.split(":", 1)
+        if not our_fp_name:
+            return None
+        for ref in refs:
+            pcb_info = self._pcb_refs.get(ref, {})
+            # Must match BOTH the library nickname AND the footprint item name.
+            # Checking only the item name causes false positives when a standard
+            # KiCad library footprint happens to share a name with ours.
+            if pcb_info.get("lib") != our_lib or pcb_info.get("fp") != our_fp_name:
+                return False
+        return True
+
+    def _update_linked_cell(self, row: int, pid: str):
+        refs = self._row_refs.get(row, [])
+        linked = self._is_linked(pid, refs)
+        item = self._tbl.item(row, CB_LINKED)
+        if item is None:
+            item = QTableWidgetItem()
+            item.setFlags(Qt.ItemIsEnabled)
+            self._tbl.setItem(row, CB_LINKED, item)
+        if linked is True:
+            item.setText("✓")
+            item.setForeground(QColor("#4CAF50"))
+            item.setToolTip("PCB footprint is linked to custom library")
+        elif linked is False:
+            item.setText("✗")
+            item.setForeground(QColor("#F44336"))
+            item.setToolTip("PCB footprint is not linked to custom library")
+        else:
+            item.setText("?")
+            item.setForeground(QColor("#9E9E9E"))
+            item.setToolTip("Link status unknown")
+        item.setTextAlignment(Qt.AlignCenter)
+
+    def _update_action_btn(self, row: int):
+        if row < 0:
+            self._action_btn.setEnabled(False)
+            self._action_btn.setText("Download Component")
+            return
+        pid_item = self._tbl.item(row, CB_PART)
+        pid = pid_item.text() if pid_item else ""
+        if not pid:
+            self._action_btn.setEnabled(False)
+            self._action_btn.setText("Download Component")
+            return
+        refs = self._row_refs.get(row, [])
+        state = self._parts.get(pid)
+        is_downloaded = state is not None and state.footprint == St.SUCCESS
+        is_linked = self._is_linked(pid, refs)
+        if is_linked is True:
+            self._action_btn.setText("Already Linked")
+            self._action_btn.setEnabled(False)
+            self._action_btn.setToolTip(
+                "PCB already references the custom library footprint.\n"
+                "If footprint data (pads, properties) looks stale, use\n"
+                "KiCad PCB Editor → Tools → Update Footprints from Library."
+            )
+        elif is_downloaded:
+            self._action_btn.setText("Replace Component")
+            self._action_btn.setEnabled(True)
+            self._action_btn.setToolTip(
+                "Update PCB and schematic to use the custom library footprint"
+            )
+        else:
+            self._action_btn.setText("Download Component")
+            self._action_btn.setEnabled(True)
+            self._action_btn.setToolTip("Download component to custom library")
+
+    def _on_action_btn(self):
         row = self._tbl.currentRow()
         if row < 0:
             return
-        pid = normalize_pid(self._lcsc_input.text().strip())
+        pid_item = self._tbl.item(row, CB_PART)
+        pid = pid_item.text() if pid_item else ""
+        refs = self._row_refs.get(row, [])
+        state = self._parts.get(pid)
+        is_downloaded = state is not None and state.footprint == St.SUCCESS
+        is_linked = self._is_linked(pid, refs)
+        if is_linked is True:
+            return
+        if is_downloaded:
+            self._on_replace_pcb(pid, refs)
+        else:
+            self._on_download(pid)
+
+    def _on_download(self, pid: str = ""):
+        if not pid:
+            pid = normalize_pid(self._lcsc_input.text().strip())
         if not pid:
             QMessageBox.warning(self, "Invalid", "Enter a valid LCSC part number.")
             return
-
         if not self._output_dir:
             QMessageBox.warning(
                 self, "No Library", "Set library location in main window."
             )
             return
-
         cfg = {
             "output_dir": self._output_dir,
             "dl_step": True,
             "dl_pdf": False,
             "lib_prefix": "",
+            "lib_mode": "organised",
             "jlcpcb_api_key": "",
         }
         if CACHE_FILE.exists():
@@ -769,14 +1170,229 @@ class BOMWindow(QMainWindow):
                         "dl_step": d.get("dl_step", True),
                         "dl_pdf": d.get("dl_pdf", False),
                         "lib_prefix": d.get("lib_prefix", ""),
+                        "lib_mode": d.get("lib_mode", "organised"),
                         "jlcpcb_api_key": d.get("jlcpcb_api_key", ""),
                     }
                 )
             except Exception:
                 pass
-
-        ensure_libraries(cfg["output_dir"], cfg["lib_prefix"])
+        ensure_libraries(cfg["output_dir"], cfg["lib_prefix"], cfg["lib_mode"])
+        if pid not in self._parts:
+            self._parts[pid] = PartState(pid)
         self._worker.process(pid, cfg, overwrite=True)
+
+    def _on_replace_pcb(self, pid: str, refs: list):
+        state = self._parts.get(pid)
+        if not state or not state.fp_name_text or ":" not in state.fp_name_text:
+            QMessageBox.warning(self, "Not Downloaded", "Component not in library yet.")
+            return
+        new_fp = state.fp_name_text
+        if not self._pcb_file or not Path(self._pcb_file).exists():
+            QMessageBox.warning(
+                self,
+                "No PCB File",
+                "PCB file not found. Close and reopen the BOM Manager from KiCad.",
+            )
+            return
+        errors = []
+        try:
+            pcb_path = Path(self._pcb_file)
+            content = pcb_path.read_text(encoding="utf-8")
+            content = _patch_pcb_footprint_refs(content, refs, new_fp)
+            pcb_path.write_text(content, encoding="utf-8")
+        except Exception as e:
+            errors.append(f"PCB update failed: {e}")
+        sch_files = self._find_sch_files()
+        patched_sch = 0
+        for sch_path in sch_files:
+            try:
+                content = sch_path.read_text(encoding="utf-8")
+                new_content = _patch_sch_footprint_refs(content, refs, new_fp)
+                if new_content != content:
+                    sch_path.write_text(new_content, encoding="utf-8")
+                    patched_sch += 1
+            except Exception as e:
+                errors.append(f"Schematic update failed ({sch_path.name}): {e}")
+        # Update our cached PCB ref info so linked status reflects reality
+        lib_part, fp_name = new_fp.split(":", 1)
+        for ref in refs:
+            self._pcb_refs[ref] = {"lib": lib_part, "fp": fp_name}
+        row = self._tbl.currentRow()
+        if row >= 0:
+            self._update_linked_cell(row, pid)
+            self._update_action_btn(row)
+            self._update_sym_btn(row)
+        if errors:
+            QMessageBox.warning(self, "Partial Update", "\n".join(errors))
+        else:
+            msg = f"Footprint reference updated for: {', '.join(refs)}\n"
+            msg += f"Now using: {new_fp}\n\n"
+            if patched_sch:
+                msg += f"PCB and {patched_sch} schematic file(s) updated.\n\n"
+                msg += "Next steps in KiCad:\n"
+                msg += "1. Reload the files (File → Revert).\n"
+                msg += "2. In PCB Editor: Tools → Update Footprints from Library\n"
+                msg += "   (this refreshes pads, 3D model, and properties from\n"
+                msg += "   the newly downloaded component).\n"
+                msg += "3. In Schematic Editor: Tools → Update PCB from Schematic\n"
+                msg += "   (to propagate any remaining schematic changes to the PCB)."
+            else:
+                msg += "PCB file updated (component not found in any schematic sheet).\n\n"
+                msg += "Next steps in KiCad:\n"
+                msg += "1. Reload the PCB (File → Revert).\n"
+                msg += "2. Tools → Update Footprints from Library\n"
+                msg += "   (refreshes pads, 3D model, and properties)."
+            QMessageBox.information(self, "Done", msg)
+
+    def _find_our_sym(self, pid: str) -> "tuple | None":
+        """Return (sym_file, sym_name, lib_id) for pid, or None if not found.
+        Scans every .kicad_sym so the right library is found regardless of
+        alphabetical ordering."""
+        if not self._output_dir:
+            return None
+        sym_dir = Path(self._output_dir) / "symbol"
+        if not sym_dir.exists():
+            return None
+        # Prefer the primary library so 'both' modes pick the lib_id the user
+        # intends; fall back to all files if the part isn't in the primary set.
+        primary = list_sym_files(self._output_dir, self._lib_mode)
+        rest = [f for f in sorted(sym_dir.glob("*.kicad_sym")) if f not in primary]
+        for sf in primary + rest:
+            try:
+                for e in _parse_sym_file(sf):
+                    if e.get("lcsc") == pid:
+                        sym_name = e.get("name", "")
+                        if sym_name:
+                            return sf, sym_name, f"{sf.stem}:{sym_name}"
+            except Exception:
+                pass
+        return None
+
+    def _get_our_sym_lib_id(self, pid: str) -> "str | None":
+        r = self._find_our_sym(pid)
+        return r[2] if r else None
+
+    def _update_sym_btn(self, row: int):
+        if row < 0:
+            self._replace_sym_btn.setEnabled(False)
+            return
+        pid_item = self._tbl.item(row, CB_PART)
+        pid = pid_item.text() if pid_item else ""
+        if not pid:
+            self._replace_sym_btn.setEnabled(False)
+            return
+        state = self._parts.get(pid)
+        sym_in_lib = state is not None and state.symbol == St.SUCCESS
+        sch_exists = bool(self._find_sch_files())
+        self._replace_sym_btn.setEnabled(sym_in_lib and sch_exists)
+        if sym_in_lib and not sch_exists:
+            self._replace_sym_btn.setToolTip(
+                "No schematic file found alongside the PCB file."
+            )
+        else:
+            self._replace_sym_btn.setToolTip(
+                "Update the schematic symbol link to use the custom library symbol"
+            )
+
+    def _on_replace_sym(self):
+        row = self._tbl.currentRow()
+        if row < 0:
+            return
+        pid_item = self._tbl.item(row, CB_PART)
+        pid = pid_item.text() if pid_item else ""
+        refs = self._row_refs.get(row, [])
+        if not pid or not refs:
+            return
+
+        sch_files = self._find_sch_files()
+        if not sch_files:
+            QMessageBox.warning(
+                self,
+                "No Schematic",
+                "No schematic files found in the project directory.",
+            )
+            return
+
+        sym_info = self._find_our_sym(pid)
+        if not sym_info:
+            QMessageBox.warning(
+                self,
+                "Symbol Not Found",
+                f"Could not find symbol for {pid} in the custom library.\n"
+                "Download the component first.",
+            )
+            return
+        sym_file, sym_name, new_lib_id = sym_info
+        lib_nickname = new_lib_id.split(":")[0]
+
+        # Pre-extract the symbol block so we can inject it into lib_symbols
+        sym_block = _extract_sym_block_for_schematic(sym_file, sym_name, lib_nickname)
+
+        warn = (
+            f"This will update the schematic symbol link for:\n"
+            f"  {', '.join(refs)}\n\n"
+            f"New symbol:  {new_lib_id}\n\n"
+            "Risks\n"
+            "─────\n"
+            "• If the custom symbol has different pins than the\n"
+            "  original, net connections may silently break.\n"
+            "• KiCad does not warn you about pin mapping changes.\n\n"
+            "After applying\n"
+            "──────────────\n"
+            "1. Reload the schematic in KiCad (File → Revert).\n"
+            "2. Run ERC to check for unconnected or mismatched pins.\n"
+            "3. Run Tools → Update PCB from Schematic to propagate\n"
+            "   the new symbol and footprint to the PCB layout.\n\n"
+            "Continue?"
+        )
+        reply = QMessageBox.warning(
+            self,
+            "Replace Symbol — Confirm",
+            warn,
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        errors = []
+        patched = 0
+        for sch_path in sch_files:
+            try:
+                content = sch_path.read_text(encoding="utf-8")
+                new_content = _patch_sch_lib_id_refs(content, refs, new_lib_id)
+                if new_content != content:
+                    # Also inject the symbol definition into lib_symbols so
+                    # KiCad can resolve the new lib_id without "symbol not found"
+                    if sym_block:
+                        new_content = _ensure_sym_in_lib_symbols(new_content, sym_block)
+                    sch_path.write_text(new_content, encoding="utf-8")
+                    patched += 1
+            except Exception as e:
+                errors.append(f"{sch_path.name}: {e}")
+
+        if errors:
+            QMessageBox.critical(self, "Error", "Failed to update schematic(s):\n" + "\n".join(errors))
+            return
+
+        QMessageBox.information(
+            self,
+            "Done",
+            f"Symbol link updated for: {', '.join(refs)}\n"
+            f"Now using: {new_lib_id}\n"
+            f"({patched} schematic sheet(s) patched)\n\n"
+            "Next steps in KiCad:\n"
+            "1. Reload the schematic (File → Revert).\n"
+            "2. Run ERC to verify pin connections.\n"
+            "3. Tools → Update PCB from Schematic."
+        )
+
+    def _find_sch_files(self) -> "list[Path]":
+        """Return all .kicad_sch files in the project directory (including sub-sheets)."""
+        if not self._pcb_file:
+            return []
+        project_dir = Path(self._pcb_file).parent
+        return sorted(project_dir.rglob("*.kicad_sch"))
 
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -815,6 +1431,7 @@ class MainWindow(QMainWindow):
         self._dl_step = True
         self._dl_pdf = False
         self._lib_prefix = ""
+        self._lib_mode = "organised"
         self._jlcpcb_api_key = ""
         self._output_dir = ""
         self._recent_dirs: list = []
@@ -836,7 +1453,7 @@ class MainWindow(QMainWindow):
         self._apply_category_editable()
         # Pre-create the fixed library set so KiCad sees every category up front.
         if self._output_dir:
-            ensure_libraries(self._output_dir, self._lib_prefix)
+            ensure_libraries(self._output_dir, self._lib_prefix, self._lib_mode)
 
         if self._bom_file:
             from PySide6.QtCore import QTimer
@@ -850,8 +1467,16 @@ class MainWindow(QMainWindow):
             p = Path(self._bom_file)
             if not p.exists():
                 return
-            data = json.loads(p.read_text())
-            self._bom_win = BOMWindow(data, self._output_dir)
+            raw = json.loads(p.read_text())
+            if isinstance(raw, list):
+                bom_data = raw
+                pcb_file = ""
+            else:
+                bom_data = raw.get("parts", [])
+                pcb_file = raw.get("pcb_file", "")
+            self._bom_win = BOMWindow(
+                bom_data, self._output_dir, pcb_file=pcb_file, lib_mode=self._lib_mode
+            )
             self._bom_win.show()
         except Exception as e:
             QMessageBox.warning(self, "BOM Error", f"Failed to load BOM data: {e}")
@@ -1012,12 +1637,14 @@ class MainWindow(QMainWindow):
             self._output_dir,
             self._recent_dirs,
             self._allow_edit_category,
+            self._lib_mode,
         )
         if dlg.exec() == QDialog.Accepted:
             self._dl_step = dlg.dl_step
             self._dl_pdf = dlg.dl_pdf
             self._col_visible = dlg.col_visible
             self._lib_prefix = dlg.lib_prefix
+            self._lib_mode = dlg.lib_mode
             self._jlcpcb_api_key = dlg.jlcpcb_api_key
             self._output_dir = dlg.output_dir
             self._recent_dirs = dlg.recent_dirs
@@ -1029,7 +1656,7 @@ class MainWindow(QMainWindow):
             self._save_cache()
             # (Re)create the fixed library set for the chosen location.
             if self._output_dir:
-                ensure_libraries(self._output_dir, self._lib_prefix)
+                ensure_libraries(self._output_dir, self._lib_prefix, self._lib_mode)
 
     def _on_header_clicked(self, col):
         if col == C_DEL:
@@ -1057,6 +1684,10 @@ class MainWindow(QMainWindow):
             self._dl_step = d.get("dl_step", True)
             self._dl_pdf = d.get("dl_pdf", False)
             self._lib_prefix = d.get("lib_prefix", "")
+            self._lib_mode = d.get("lib_mode", "organised")
+            # Legacy "both" predates the primary split → keep organised primary.
+            if self._lib_mode == "both":
+                self._lib_mode = "both_organised"
             self._jlcpcb_api_key = d.get("jlcpcb_api_key", "")
             self._allow_edit_category = d.get("allow_edit_category", False)
 
@@ -1111,6 +1742,7 @@ class MainWindow(QMainWindow):
                         "dl_pdf": self._dl_pdf,
                         "col_visible": self._col_visible,
                         "lib_prefix": self._lib_prefix,
+                        "lib_mode": self._lib_mode,
                         "jlcpcb_api_key": self._jlcpcb_api_key,
                         "allow_edit_category": self._allow_edit_category,
                     },
@@ -1126,6 +1758,7 @@ class MainWindow(QMainWindow):
             "dl_step": self._dl_step,
             "dl_pdf": self._dl_pdf,
             "lib_prefix": self._lib_prefix,
+            "lib_mode": self._lib_mode,
             "jlcpcb_api_key": self._jlcpcb_api_key,
         }
 
@@ -1587,7 +2220,8 @@ class MainWindow(QMainWindow):
             return
         lib = Path(cfg["output_dir"])
         sym_dir = lib / "symbol"
-        sym_files = sorted(sym_dir.glob("*.kicad_sym")) if sym_dir.exists() else []
+        # Honour the primary so the 'both' modes don't list every part twice.
+        sym_files = list_sym_files(cfg["output_dir"], self._lib_mode)
         if not sym_files:
             QMessageBox.information(
                 self, "No Library", f"No .kicad_sym files in {sym_dir}"
@@ -1644,6 +2278,29 @@ class MainWindow(QMainWindow):
         msg = f"Loaded {loaded} part(s)." if loaded else "No new parts found."
         self._log.append(msg)
         _update_sym_lib_table(cfg["output_dir"])
+
+    def refresh_after_sync(self, synced_dir: str = ""):
+        """Re-read the libraries after a Sync so this window and any open BOM
+        window reflect the new on-disk state. Only refreshes views that point at
+        the directory that was synced."""
+        if not self._output_dir:
+            return
+        if synced_dir and Path(synced_dir) != Path(self._output_dir):
+            return
+        try:
+            self._load_library()
+        except Exception:
+            pass
+        win = getattr(self, "_bom_win", None)
+        if win is None:
+            return
+        try:
+            same_dir = not synced_dir or Path(win._output_dir) == Path(synced_dir)
+            if win.isVisible() and same_dir:
+                win._populate_bom()
+        except RuntimeError:
+            # Underlying Qt object already deleted — nothing to refresh.
+            pass
 
     def closeEvent(self, event):
         self._save_cache()

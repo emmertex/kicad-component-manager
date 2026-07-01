@@ -1,5 +1,17 @@
 ## v2.0 - KiCad Library Manager
 
+### v2.2.0 - More Stable, and Tests
+
+**Bugs**
+- Some more regex issues surfaced, so a complete refactor
+
+**Tests**
+- Over 70 unit tests created.  No more regressions
+- During tests, a couple other issues were found, it was worth it
+
+So no new features, but a better product, and a better future!
+
+
 ### v2.1.0 - External Backend
 
 **BOM Manager Improvements**

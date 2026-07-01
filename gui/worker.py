@@ -23,13 +23,12 @@ from lib.categories import resolve_category
 from lib.helpers import (
     PDF_MIN_BYTES,
     _check_existing,
-    _lib_name,
     _update_symbol_datasheet,
+    sym_lib_targets,
+    upsert_symbol,
 )
+from lib.kicad_escape import escape_kicad_string
 from lib.jlc import helper, pdf_downloader
-
-
-# ── Log capture ───────────────────────────────────────────────────────────────
 class _Cap(logging.Handler):
     def __init__(self, cb):
         super().__init__()
@@ -220,14 +219,19 @@ class Worker(QThread):
             fp_name = ee_footprint.info.name
             mod_path = pretty_dir / f"{fp_name}.kicad_mod"
 
-            # 3D model path
+            # 3D model path. Must be an absolute / env-var path so the model
+            # resolves from ANY project that uses this library. A relative path
+            # (e.g. "footprint/packages3d") is resolved by KiCad against the
+            # *project* directory, not the library, so it never loads. We use
+            # ${KICAD_USER_LIBRARY_DIR} (the KiCad env var pointing at this
+            # library) and .step so board STEP/fab export picks the model up.
             model_dir_name = "packages3d"
-            model_rel_path = f"footprint/{model_dir_name}"  # relative to library root
+            model_rel_path = f"${{KICAD_USER_LIBRARY_DIR}}/footprint/{model_dir_name}"
 
             exporter.export(
                 footprint_full_path=str(mod_path),
                 model_3d_path=model_rel_path,
-                model_3d_extension="wrl",
+                model_3d_extension="step",
             )
 
             c["fp_name"] = f"footprint:{fp_name}"
@@ -286,7 +290,12 @@ class Worker(QThread):
             # Category and Library
             raw_category = info.get("category") or info.get("Category") or ""
             category = resolve_category(raw_category)
-            lib_name = _lib_name(raw_category, cfg.get("lib_prefix", ""))
+            # Which symbol library file(s) this part is written to depends on the
+            # chosen organisation mode (organised / consolidated / both).
+            lib_mode = cfg.get("lib_mode", "organised")
+            lib_names = sym_lib_targets(
+                raw_category, cfg.get("lib_prefix", ""), lib_mode
+            )
 
             # Custom fields for KiCad symbol
             # Note: ExporterSymbolKicad from easyeda2kicad already adds:
@@ -294,42 +303,48 @@ class Worker(QThread):
             # We'll update ee_symbol.info directly for these built-in fields.
 
             # Use LCSC data if available, fallback to EasyEDA CAD data
-            mfr = (
+            mfr = escape_kicad_string(
                 info.get("mfr")
                 or info.get("manufacturer")
                 or ee_symbol.info.manufacturer
             )
-            desc = info.get("description") or ee_symbol.info.description
+            desc = escape_kicad_string(
+                info.get("description") or ee_symbol.info.description
+            )
 
             ee_symbol.info.manufacturer = mfr
-            ee_symbol.info.package = (
+            ee_symbol.info.package = escape_kicad_string(
                 info.get("package") or info.get("Package") or ee_symbol.info.package
             )
             ee_symbol.info.description = desc
             ee_symbol.info.lcsc_id = pid
 
             # Value
-            val = info.get("value") or info.get("Value") or pid
+            val = escape_kicad_string(info.get("value") or info.get("Value") or pid)
             ee_symbol.info.name = val
 
             # Datasheet - use local PDF if available
-            ds = c.get("ds_link") or c.get("lcsc_url") or ee_symbol.info.datasheet or ""
+            ds = escape_kicad_string(
+                c.get("ds_link") or c.get("lcsc_url") or ee_symbol.info.datasheet or ""
+            )
             ee_symbol.info.datasheet = ds
 
             # Additional custom fields
             custom_fields = {
-                "LCSC": pid,  # Legacy field name some users might expect
+                "LCSC": pid,
                 "Category": category,
                 "Description": desc,
                 "Manufacturer": mfr,
             }
 
             if info.get("attributes"):
-                custom_fields["Key_Attributes"] = info.get("attributes")
+                custom_fields["Key_Attributes"] = escape_kicad_string(
+                    info.get("attributes")
+                )
             if info.get("stock"):
-                custom_fields["Stock"] = info.get("stock")
+                custom_fields["Stock"] = escape_kicad_string(info.get("stock"))
             if info.get("price"):
-                custom_fields["Price"] = info.get("price")
+                custom_fields["Price"] = escape_kicad_string(info.get("price"))
 
             # Add individual specifications as properties
             for spec_name, spec_value in info.get("specifications", {}).items():
@@ -351,34 +366,38 @@ class Worker(QThread):
                         "LCSC Part",
                         "Description",
                     ):
-                        custom_fields[clean_name] = spec_value
+                        custom_fields[clean_name] = escape_kicad_string(spec_value)
 
-            # Library Path
-            lib_path = Path(cfg["output_dir"]) / "symbol" / f"{lib_name}.kicad_sym"
-            lib_path.parent.mkdir(parents=True, exist_ok=True)
-
-            log(f"Saving symbol to {lib_path.name}...")
-            # Exporter
-            exporter = ExporterSymbolKicad(
-                ee_symbol,
-                lib_path=str(lib_path),
-                custom_fields=custom_fields,
-            )
-
-            # Footprint reference
+            # Footprint reference (shared across all symbol libraries)
             fp = (c.get("fp_name") or "").replace(".pretty", "")
             if ":" in fp:
                 fp_lib, fp_bare = fp.split(":", 1)
             else:
                 fp_lib, fp_bare = "footprint", fp
 
-            exporter.output.info.package = fp_bare
+            sym_dir = Path(cfg["output_dir"]) / "symbol"
+            sym_dir.mkdir(parents=True, exist_ok=True)
 
-            save_ok = exporter.save_to_lib(
-                lib_path=str(lib_path), footprint_lib_name=fp_lib, overwrite=True
+            # Generate the symbol block once, then write it into each target
+            # library with our own paren-matched upsert. We deliberately avoid
+            # ExporterSymbolKicad.save_to_lib: its regex-based replace eats a
+            # newline on every overwrite, eventually jamming symbols together and
+            # duplicating sub-units (corrupting multi-download libraries).
+            exporter = ExporterSymbolKicad(
+                ee_symbol,
+                lib_path=str(sym_dir / f"{lib_names[0]}.kicad_sym"),
+                custom_fields=custom_fields,
             )
-            if not save_ok:
-                log(f"Warning: save_to_lib returned False for {lib_path.name}")
+            exporter.output.info.package = fp_bare
+            sym_content = exporter.export(footprint_lib_name=fp_lib)
+
+            log(f"Saving symbol to {', '.join(n + '.kicad_sym' for n in lib_names)}...")
+            for lib_name in lib_names:
+                lib_path = sym_dir / f"{lib_name}.kicad_sym"
+                try:
+                    upsert_symbol(str(lib_path), sym_content)
+                except Exception as we:
+                    log(f"Warning: could not write symbol to {lib_path.name}: {we}")
 
             # Extract attributes for the GUI
             self.step_done.emit(

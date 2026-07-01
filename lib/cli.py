@@ -46,6 +46,7 @@ def cfg_from_cache():
         "dl_step": d.get("dl_step", True),
         "dl_pdf": d.get("dl_pdf", False),
         "lib_prefix": d.get("lib_prefix", ""),
+        "lib_mode": d.get("lib_mode", "organised"),
         "jlcpcb_api_key": d.get("jlcpcb_api_key", ""),
     }
 
@@ -58,7 +59,7 @@ def run_import(pids, cfg):
     from lib.helpers import ensure_libraries
 
     app = QCoreApplication(sys.argv)
-    ensure_libraries(cfg["output_dir"], cfg["lib_prefix"])
+    ensure_libraries(cfg["output_dir"], cfg["lib_prefix"], cfg.get("lib_mode", "organised"))
 
     worker = Worker()
     remaining = set(pids)

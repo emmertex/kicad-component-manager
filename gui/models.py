@@ -39,7 +39,8 @@ from PySide6.QtWidgets import QTableWidgetItem
     CB_JLC,
     CB_PRICE,
     CB_SUBTOTAL,
-) = range(14)
+    CB_LINKED,
+) = range(15)
 
 BOM_COL_NAMES = [
     "Designator(s)",
@@ -56,6 +57,7 @@ BOM_COL_NAMES = [
     "J",
     "Price",
     "Sub Total",
+    "Linked",
 ]
 
 COL_NAMES = [

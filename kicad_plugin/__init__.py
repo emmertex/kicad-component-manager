@@ -260,20 +260,47 @@ def _run_manager(mode="manager"):
             board = pcbnew.GetBoard()
             parts = []
             for fp in board.GetFootprints():
-                # Try various common field names for LCSC part number
+                # Try specific known field names first (fast path)
                 lcsc_pn = ""
-                for field_name in ["LCSC", "LCSC Part #", "LCSC Part Number", "LCSC#"]:
+                for field_name in [
+                    "LCSC", "LCSC Part #", "LCSC Part Number", "LCSC#",
+                    "lcsc", "LCSC_PN", "LCSC Part", "JLC", "JLCPCB",
+                ]:
                     fobj = fp.GetField(field_name)
                     if fobj:
-                        val = fobj.GetText()
+                        val = fobj.GetText().strip()
                         if val:
                             lcsc_pn = val
                             break
 
-                # Fallback: check value for LCSC part number pattern (e.g. C12345)
+                # Scan ALL custom fields for anything containing "lcsc"
+                if not lcsc_pn:
+                    try:
+                        for field in fp.GetFields():
+                            name = field.GetName() if hasattr(field, "GetName") else ""
+                            if "lcsc" in name.lower() or "jlc" in name.lower():
+                                val = field.GetText().strip()
+                                if val:
+                                    lcsc_pn = val
+                                    break
+                    except Exception:
+                        pass
+
+                # Last resort: scan all field values for LCSC part number pattern
+                if not lcsc_pn:
+                    try:
+                        for field in fp.GetFields():
+                            val = field.GetText().strip()
+                            if re.match(r"^C\d{4,}$", val):
+                                lcsc_pn = val
+                                break
+                    except Exception:
+                        pass
+
+                # Original fallback: check Value field
                 if not lcsc_pn:
                     val = fp.GetValue()
-                    match = re.search(r"(C\d+)", val)
+                    match = re.search(r"(C\d{4,})", val)
                     if match:
                         lcsc_pn = match.group(1)
 
@@ -287,10 +314,14 @@ def _run_manager(mode="manager"):
                     }
                 )
 
+            bom_payload = {
+                "pcb_file": str(board.GetFileName()),
+                "parts": parts,
+            }
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".json", delete=False
             ) as f:
-                json.dump(parts, f)
+                json.dump(bom_payload, f)
                 args.extend(["--bom", f.name])
             _log(f"BOM data saved to {f.name}")
 

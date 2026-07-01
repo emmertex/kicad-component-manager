@@ -1,0 +1,1379 @@
+{
+  "C25804": {
+    "status": 200,
+    "body": {
+      "code": 200,
+      "msg": null,
+      "result": {
+        "parentCatalogList": [
+          {
+            "catalogId": 30,
+            "catalogNameEn": "Passives"
+          },
+          {
+            "catalogId": 501,
+            "catalogNameEn": "Resistors"
+          }
+        ],
+        "isCableCategory": false,
+        "productId": 26547,
+        "productCode": "C25804",
+        "productModel": "0603WAF1002T5E",
+        "productNameEn": "RES 10kΩ ±1% 100mW 0603",
+        "productKeyAttributes": "RES 10kΩ ±1% 100mW 0603",
+        "parentCatalogId": 308,
+        "parentCatalogName": "Resistors",
+        "catalogId": 1199,
+        "catalogName": "Chip Resistor - Surface Mount",
+        "brandId": 99,
+        "brandNameEn": "UNI-ROYAL",
+        "encapStandard": "0603",
+        "split": 100,
+        "productUnit": "Piece",
+        "minPacketUnit": "Reel",
+        "minBuyNumber": 100,
+        "maxBuyNumber": -1,
+        "minPacketNumber": 5000,
+        "isEnvironment": true,
+        "allHotLevel": null,
+        "isHot": true,
+        "isPreSale": false,
+        "isReel": true,
+        "reelPrice": 3.0,
+        "stockNumber": 0,
+        "stockSz": 0,
+        "domesticStockVO": {
+          "total": 0,
+          "shipImmediately": 0,
+          "ship3Days": 0
+        },
+        "overseasStockVO": {
+          "total": 0,
+          "shipImmediately": 0,
+          "ship3Days": 0
+        },
+        "productPriceList": [
+          {
+            "ladder": 100,
+            "productPrice": "0.0019",
+            "usdPrice": 0.0019,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0019,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 1000,
+            "productPrice": "0.0016",
+            "usdPrice": 0.0016,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0016,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 5000,
+            "productPrice": "0.0014",
+            "usdPrice": 0.0014,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0014,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 10000,
+            "productPrice": "0.0013",
+            "usdPrice": 0.0013,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0013,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          }
+        ],
+        "productImages": [
+          "https://assets.lcsc.com/images/lcsc/900x900/20260522_UNI-ROYAL-0603WAF1002T5E_C25804_front.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20260522_UNI-ROYAL-0603WAF1002T5E_C25804_back.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20260522_UNI-ROYAL-0603WAF1002T5E_C25804_blank.jpg"
+        ],
+        "edaSvgInfo": {
+          "schSvg": "//image.easyeda.com/component_svgs/prod/b210af5a1436310a86e8b108e2e5a90b.svg?t=1704977706",
+          "pcbSvg": "//image.easyeda.com/component_svgs/prod/398691f1f785460098bbe5ee6590333c.svg?t=1704977706"
+        },
+        "faqs": null,
+        "pdfUrl": "https://datasheet.lcsc.com/datasheet/pdf/0a975aaa49b7c97f38a963127be4a823.pdf?productCode=C25804",
+        "productDescEn": "10kΩ ±1% 100mW 0603 Thick Film Resistor",
+        "productIntroEn": "10kΩ ±1% 100mW 0603 Thick Film Resistor",
+        "paramVOList": [
+          {
+            "paramCode": "param_10837_n",
+            "paramName": "功率",
+            "paramNameEn": "Power(Watts)",
+            "paramValue": "100mW",
+            "paramValueEn": "100mW",
+            "paramValueEnForSearch": 0.1,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 20
+          },
+          {
+            "paramCode": "param_11205_n",
+            "paramName": "阻值",
+            "paramNameEn": "Resistance",
+            "paramValue": "10kΩ",
+            "paramValueEn": "10kΩ",
+            "paramValueEnForSearch": 10000.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 7
+          },
+          {
+            "paramCode": "param_11312_s",
+            "paramName": "工作温度",
+            "paramNameEn": "Operating Temperature",
+            "paramValue": "-55℃~+155℃",
+            "paramValueEn": "-55℃~+155℃",
+            "paramValueEnForSearch": null,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 10
+          },
+          {
+            "paramCode": "param_11204_n",
+            "paramName": "最大工作电压",
+            "paramNameEn": "Voltage Rating",
+            "paramValue": "75V",
+            "paramValueEn": "75V",
+            "paramValueEnForSearch": 75.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 18
+          },
+          {
+            "paramCode": "param_11202",
+            "paramName": "电阻类型",
+            "paramNameEn": "Type",
+            "paramValue": "厚膜电阻",
+            "paramValueEn": "Thick Film Resistor",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 1
+          },
+          {
+            "paramCode": "param_11185_s",
+            "paramName": "温度系数",
+            "paramNameEn": "Temperature Coefficient",
+            "paramValue": "±100ppm/℃",
+            "paramValueEn": "±100ppm/℃",
+            "paramValueEnForSearch": null,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 25
+          },
+          {
+            "paramCode": "param_11206_s",
+            "paramName": "精度",
+            "paramNameEn": "Tolerance",
+            "paramValue": "±1%",
+            "paramValueEn": "±1%",
+            "paramValueEnForSearch": null,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 13
+          }
+        ],
+        "wmCatalogId": 1199,
+        "wmCatalogNameEn": "Chip Resistor - Surface Mount",
+        "productArrange": "Tape & Reel (TR)",
+        "productWeight": 2.491e-05,
+        "foreignWeight": 0.0,
+        "isForeignOnsale": true,
+        "isForeignDisplay": true,
+        "isNotOverstock": false,
+        "productCycle": "normal",
+        "isHasBattery": false,
+        "pdfLinkUrl": null,
+        "isShowForeignPrice": true,
+        "isRealPrice": true,
+        "productLadderPrice": null,
+        "ladderDiscountRate": null,
+        "eccn": null,
+        "currencyType": "USD",
+        "currencySymbol": "$",
+        "title": "UNI-ROYAL 0603WAF1002T5E",
+        "weight": 0.025,
+        "hasThirdPartyStock": false,
+        "flashSaleProductPO": null,
+        "htsMap": {
+          "BR": "85332110",
+          "TARIC": "8533210000",
+          "IN": "85332111",
+          "CN": "8533211000",
+          "MX": "8533.21.01",
+          "CA": "8533210000",
+          "US": "8533210020"
+        },
+        "isAsianBrand": true,
+        "isMro": false,
+        "isInfringement": false
+      },
+      "ok": true
+    }
+  },
+  "C49678": {
+    "status": 200,
+    "body": {
+      "code": 200,
+      "msg": null,
+      "result": {
+        "parentCatalogList": [
+          {
+            "catalogId": 30,
+            "catalogNameEn": "Passives"
+          },
+          {
+            "catalogId": 495,
+            "catalogNameEn": "Capacitors"
+          }
+        ],
+        "isCableCategory": false,
+        "productId": 50686,
+        "productCode": "C49678",
+        "productModel": "CC0805KRX7R9BB104",
+        "productNameEn": "CAP CER 100nF 50V X7R 0805",
+        "productKeyAttributes": "CAP CER 100nF 50V X7R 0805",
+        "parentCatalogId": 312,
+        "parentCatalogName": "Capacitors",
+        "catalogId": 1142,
+        "catalogName": "Ceramic Capacitors",
+        "brandId": 396,
+        "brandNameEn": "YAGEO",
+        "encapStandard": "0805",
+        "split": 100,
+        "productUnit": "Piece",
+        "minPacketUnit": "Reel",
+        "minBuyNumber": 100,
+        "maxBuyNumber": -1,
+        "minPacketNumber": 4000,
+        "isEnvironment": true,
+        "allHotLevel": null,
+        "isHot": true,
+        "isPreSale": false,
+        "isReel": true,
+        "reelPrice": 3.0,
+        "stockNumber": 0,
+        "stockSz": 0,
+        "domesticStockVO": {
+          "total": 0,
+          "shipImmediately": 0,
+          "ship3Days": 0
+        },
+        "overseasStockVO": {
+          "total": 0,
+          "shipImmediately": 0,
+          "ship3Days": 0
+        },
+        "productPriceList": [
+          {
+            "ladder": 100,
+            "productPrice": "0.0170",
+            "usdPrice": 0.017,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.017,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 1000,
+            "productPrice": "0.0158",
+            "usdPrice": 0.0158,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0158,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 4000,
+            "productPrice": "0.0151",
+            "usdPrice": 0.0151,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0151,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 8000,
+            "productPrice": "0.0147",
+            "usdPrice": 0.0147,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0147,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 48000,
+            "productPrice": "0.0145",
+            "usdPrice": 0.0145,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0145,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 100000,
+            "productPrice": "0.0144",
+            "usdPrice": 0.0144,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0144,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          }
+        ],
+        "productImages": [
+          "https://assets.lcsc.com/images/lcsc/900x900/20221230_YAGEO-CC0805KRX7R9BB104_C49678_front.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20221230_YAGEO-CC0805KRX7R9BB104_C49678_back.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20221230_YAGEO-CC0805KRX7R9BB104_C49678_blank.jpg"
+        ],
+        "edaSvgInfo": {
+          "schSvg": "//image.easyeda.com/component_svgs/prod/2f2c771dc147fb0210616ca49e419712.svg?t=1726193578",
+          "pcbSvg": "//image.easyeda.com/component_svgs/prod/2ee8eb13a0124a108e622ce40c0c25a8.svg?t=1726193578"
+        },
+        "faqs": null,
+        "pdfUrl": "https://datasheet.lcsc.com/datasheet/pdf/23ccee80ee542e7cf156a772bb589942.pdf?productCode=C49678",
+        "productDescEn": "100nF ±10% 50V Ceramic Capacitor X7R 0805",
+        "productIntroEn": "100nF ±10% 50V Ceramic Capacitor X7R 0805",
+        "paramVOList": [
+          {
+            "paramCode": "param_10951_n",
+            "paramName": "容值",
+            "paramNameEn": "Capacitance",
+            "paramValue": "100nF",
+            "paramValueEn": "100nF",
+            "paramValueEnForSearch": 100000.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 1
+          },
+          {
+            "paramCode": "param_10927",
+            "paramName": "温度系数",
+            "paramNameEn": "Temperature Coefficient",
+            "paramValue": "X7R",
+            "paramValueEn": "X7R",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 4
+          },
+          {
+            "paramCode": "param_10923_s",
+            "paramName": "精度",
+            "paramNameEn": "Tolerance",
+            "paramValue": "±10%",
+            "paramValueEn": "±10%",
+            "paramValueEnForSearch": null,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 2
+          },
+          {
+            "paramCode": "param_10924_n",
+            "paramName": "额定电压",
+            "paramNameEn": "Voltage Rating",
+            "paramValue": "50V",
+            "paramValueEn": "50V",
+            "paramValueEnForSearch": 50.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 3
+          }
+        ],
+        "wmCatalogId": 1142,
+        "wmCatalogNameEn": "Ceramic Capacitors",
+        "productArrange": "Tape & Reel (TR)",
+        "productWeight": 5.34e-05,
+        "foreignWeight": 3.9e-05,
+        "isForeignOnsale": true,
+        "isForeignDisplay": true,
+        "isNotOverstock": false,
+        "productCycle": "normal",
+        "isHasBattery": false,
+        "pdfLinkUrl": null,
+        "isShowForeignPrice": true,
+        "isRealPrice": true,
+        "productLadderPrice": null,
+        "ladderDiscountRate": null,
+        "eccn": "EAR99",
+        "currencyType": "USD",
+        "currencySymbol": "$",
+        "title": "YAGEO CC0805KRX7R9BB104",
+        "weight": 0.039,
+        "hasThirdPartyStock": false,
+        "flashSaleProductPO": null,
+        "htsMap": {
+          "BR": "85322410",
+          "TARIC": "8532240000",
+          "IN": "85322400",
+          "CN": "8532241000",
+          "MX": "8532.24.01",
+          "CA": "8532240090",
+          "US": "8532240020"
+        },
+        "isAsianBrand": true,
+        "isMro": false,
+        "isInfringement": false
+      },
+      "ok": true
+    }
+  },
+  "C8734": {
+    "status": 200,
+    "body": {
+      "code": 200,
+      "msg": null,
+      "result": {
+        "parentCatalogList": [
+          {
+            "catalogId": 17,
+            "catalogNameEn": "Integrated Circuits (ICs)"
+          },
+          {
+            "catalogId": 258,
+            "catalogNameEn": "Embedded"
+          }
+        ],
+        "isCableCategory": false,
+        "productId": 9243,
+        "productCode": "C8734",
+        "productModel": "STM32F103C8T6",
+        "productNameEn": "Medium-density performance line Arm-based 32-bit MCU with 64 or 128 KB Flash, USB, CAN, 7 timers, 2 ADCs, 9 com. interfaces",
+        "productKeyAttributes": "Medium-density performance line Arm-based 32-bit MCU with 64 or 128 KB Flash, USB, CAN, 7 timers, 2 ADCs, 9 com. interfaces",
+        "parentCatalogId": 470,
+        "parentCatalogName": "Embedded Processors & Controllers",
+        "catalogId": 941,
+        "catalogName": "Microcontrollers",
+        "brandId": 74,
+        "brandNameEn": "ST",
+        "encapStandard": "LQFP-48(7x7)",
+        "split": 1,
+        "productUnit": "Piece",
+        "minPacketUnit": "Tray",
+        "minBuyNumber": 1,
+        "maxBuyNumber": -1,
+        "minPacketNumber": 250,
+        "isEnvironment": true,
+        "allHotLevel": null,
+        "isHot": true,
+        "isPreSale": false,
+        "isReel": false,
+        "reelPrice": 0,
+        "stockNumber": 22887,
+        "stockSz": 22887,
+        "domesticStockVO": {
+          "total": 22887,
+          "shipImmediately": 22887,
+          "ship3Days": 0
+        },
+        "overseasStockVO": {
+          "total": 22887,
+          "shipImmediately": 22887,
+          "ship3Days": 0
+        },
+        "productPriceList": [
+          {
+            "ladder": 1,
+            "productPrice": "1.4783",
+            "usdPrice": 1.4783,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 1.4783,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 10,
+            "productPrice": "1.2884",
+            "usdPrice": 1.2884,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 1.2884,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 30,
+            "productPrice": "1.1537",
+            "usdPrice": 1.1537,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 1.1537,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 250,
+            "productPrice": "1.0320",
+            "usdPrice": 1.032,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 1.032,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 500,
+            "productPrice": "0.9753",
+            "usdPrice": 0.9753,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.9753,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 1000,
+            "productPrice": "0.9525",
+            "usdPrice": 0.9525,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.9525,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          }
+        ],
+        "productImages": [
+          "https://assets.lcsc.com/images/lcsc/900x900/20230221_STMicroelectronics-STM32F103C8T6_C8734_front.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20230221_STMicroelectronics-STM32F103C8T6_C8734_back.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20230221_STMicroelectronics-STM32F103C8T6_C8734_blank.jpg"
+        ],
+        "edaSvgInfo": {
+          "schSvg": "//image.easyeda.com/component_svgs/prod/7347be22b5856eba3ffccb74c7404572.svg?t=1750141599",
+          "pcbSvg": "//image.easyeda.com/component_svgs/prod/4a13c433861640209b7106f419770da9.svg?t=1750141599"
+        },
+        "faqs": null,
+        "pdfUrl": "https://datasheet.lcsc.com/datasheet/pdf/ac66debd4c13334db1d28037926f8881.pdf?productCode=C8734",
+        "productDescEn": null,
+        "productIntroEn": "ARM Cortex-M3 32 Bit 72MHz 37 LQFP-48(7x7) Microcontrollers RoHS",
+        "paramVOList": [
+          {
+            "paramCode": "param_31018_n",
+            "paramName": "ADC(位数)",
+            "paramNameEn": "ADC (Bit)",
+            "paramValue": "12bit",
+            "paramValueEn": "12bit",
+            "paramValueEnForSearch": 12.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 42
+          },
+          {
+            "paramCode": "param_31030_st",
+            "paramName": "工作温度",
+            "paramNameEn": "Operating Temperature",
+            "paramValue": "-40℃~+85℃",
+            "paramValueEn": "-40℃~+85℃",
+            "paramValueEnForSearch": null,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 18
+          },
+          {
+            "paramCode": "param_14378_s",
+            "paramName": "工作电压",
+            "paramNameEn": "Voltage - Supply",
+            "paramValue": "2V~3.6V",
+            "paramValueEn": "2V~3.6V",
+            "paramValueEnForSearch": null,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 13
+          },
+          {
+            "paramCode": "param_31014",
+            "paramName": "程序存储器类型",
+            "paramNameEn": "Program Memory Type",
+            "paramValue": "FLASH",
+            "paramValueEn": "FLASH",
+            "paramValueEnForSearch": -1.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 24
+          },
+          {
+            "paramCode": "param_31021_n",
+            "paramName": "EEPROM容量",
+            "paramNameEn": "EEPROM",
+            "paramValue": "-",
+            "paramValueEn": "-",
+            "paramValueEnForSearch": null,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 34
+          },
+          {
+            "paramCode": "param_31013_n",
+            "paramName": "程序存储容量",
+            "paramNameEn": "Program Storage Size",
+            "paramValue": "64KB",
+            "paramValueEn": "64KB",
+            "paramValueEnForSearch": 65536.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 21
+          },
+          {
+            "paramCode": "param_13056",
+            "paramName": "CPU内核",
+            "paramNameEn": "CPU Core",
+            "paramValue": "ARM Cortex-M3",
+            "paramValueEn": "ARM Cortex-M3",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 2
+          },
+          {
+            "paramCode": "param_31012",
+            "paramName": "CPU位数",
+            "paramNameEn": "Core Size",
+            "paramValue": "32 Bit",
+            "paramValueEn": "32 Bit",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 5
+          },
+          {
+            "paramCode": "param_31011_n",
+            "paramName": "CPU最大主频",
+            "paramNameEn": "CPU Maximum Speed",
+            "paramValue": "72MHz",
+            "paramValueEn": "72MHz",
+            "paramValueEnForSearch": 72000000.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 9
+          },
+          {
+            "paramCode": "param_33087",
+            "paramName": "振荡器类型",
+            "paramNameEn": "Oscillator Type",
+            "paramValue": "内置",
+            "paramValueEn": "Built-in",
+            "paramValueEnForSearch": -1.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 15
+          },
+          {
+            "paramCode": "param_13052_n",
+            "paramName": "I/O数量",
+            "paramNameEn": "Number of I/O",
+            "paramValue": "37",
+            "paramValueEn": "37",
+            "paramValueEnForSearch": 37.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 41
+          }
+        ],
+        "wmCatalogId": 941,
+        "wmCatalogNameEn": "Microcontrollers",
+        "productArrange": "Tray",
+        "productWeight": 0.0014136,
+        "foreignWeight": 0.0,
+        "isForeignOnsale": true,
+        "isForeignDisplay": true,
+        "isNotOverstock": false,
+        "productCycle": "normal",
+        "isHasBattery": false,
+        "pdfLinkUrl": null,
+        "isShowForeignPrice": true,
+        "isRealPrice": true,
+        "productLadderPrice": null,
+        "ladderDiscountRate": null,
+        "eccn": "3A991A2",
+        "currencyType": "USD",
+        "currencySymbol": "$",
+        "title": "ST STM32F103C8T6",
+        "weight": 1.414,
+        "hasThirdPartyStock": false,
+        "flashSaleProductPO": null,
+        "htsMap": {
+          "CN": "8542319090"
+        },
+        "isAsianBrand": null,
+        "isMro": false,
+        "isInfringement": false
+      },
+      "ok": true
+    }
+  },
+  "C165948": {
+    "status": 200,
+    "body": {
+      "code": 200,
+      "msg": null,
+      "result": {
+        "parentCatalogList": [
+          {
+            "catalogId": 10,
+            "catalogNameEn": "Connectors, Interconnects"
+          },
+          {
+            "catalogId": 178,
+            "catalogNameEn": "USB, DVI, HDMI Connectors"
+          }
+        ],
+        "isCableCategory": true,
+        "productId": 177331,
+        "productCode": "C165948",
+        "productModel": "TYPE-C-31-M-12",
+        "productNameEn": "CONN RCPT Type-C 16POS SMD",
+        "productKeyAttributes": "CONN RCPT Type-C 16POS SMD",
+        "parentCatalogId": 365,
+        "parentCatalogName": "Connectors",
+        "catalogId": 842,
+        "catalogName": "USB, DVI, HDMI Connector Assemblies",
+        "brandId": 947,
+        "brandNameEn": "Korean Hroparts Elec",
+        "encapStandard": "SMD",
+        "split": 5,
+        "productUnit": "Piece",
+        "minPacketUnit": "Reel",
+        "minBuyNumber": 5,
+        "maxBuyNumber": -1,
+        "minPacketNumber": 1000,
+        "isEnvironment": true,
+        "allHotLevel": null,
+        "isHot": true,
+        "isPreSale": false,
+        "isReel": false,
+        "reelPrice": 0,
+        "stockNumber": 155470,
+        "stockSz": 155470,
+        "domesticStockVO": {
+          "total": 155470,
+          "shipImmediately": 155470,
+          "ship3Days": 0
+        },
+        "overseasStockVO": {
+          "total": 155470,
+          "shipImmediately": 155470,
+          "ship3Days": 0
+        },
+        "productPriceList": [
+          {
+            "ladder": 5,
+            "productPrice": "0.1857",
+            "usdPrice": 0.1857,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.1857,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 50,
+            "productPrice": "0.1466",
+            "usdPrice": 0.1466,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.1466,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 150,
+            "productPrice": "0.1275",
+            "usdPrice": 0.1275,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.1275,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 1000,
+            "productPrice": "0.1034",
+            "usdPrice": 0.1034,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.1034,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 2000,
+            "productPrice": "0.0988",
+            "usdPrice": 0.0988,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0988,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 5000,
+            "productPrice": "0.0960",
+            "usdPrice": 0.096,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.096,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          }
+        ],
+        "productImages": [
+          "https://assets.lcsc.com/images/lcsc/900x900/20260525_Korean-Hroparts-Elec-TYPE-C-31-M-12_C165948_front.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20260525_Korean-Hroparts-Elec-TYPE-C-31-M-12_C165948_back.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20260525_Korean-Hroparts-Elec-TYPE-C-31-M-12_C165948_blank.jpg"
+        ],
+        "edaSvgInfo": {
+          "schSvg": "//image.easyeda.com/component_svgs/prod/df8405e2fa0e40a984c435ad4c8d5cf3.svg?t=1757297676",
+          "pcbSvg": "//image.easyeda.com/component_svgs/prod/d556fcebb18d4647a249a7d49ea0c41d.svg?t=1757297676"
+        },
+        "faqs": [
+          {
+            "question": "What Is the Proper Mounting Type Needed for Circuit Board Implementation?",
+            "answer": "This connector utilizes a right-angle, surface-mount (SMD) design. During implementation, it should be placed on the edge of the PCB to allow proper external cable insertion, and standard SMT reflow soldering processes should be followed."
+          },
+          {
+            "question": "What Are the Key Technical Specifications Regarding Power and Temperature Limits?",
+            "answer": "This right-angle female Type-C connector features a voltage rating of 20V and a current rating of 5A. It is designed to operate reliably within a temperature range of -30°C to +80°C."
+          },
+          {
+            "question": "What Are the Primary Application Scenarios for This Particular Connector?",
+            "answer": "Thanks to its compact surface-mount design and robust 5A current rating, this connector is ideal for modern electronic devices requiring power delivery and standard data transfer, such as smartphones, IoT modules, power banks, and portable consumer electronics."
+          },
+          {
+            "question": "How Can I Find Alternative or Replacement Connectors With Similar Specifications on LCSC?",
+            "answer": "You can easily find suitable replacements by clicking the \"Show similar products\" link on the product page. This allows you to filter through over 7,000 alternative USB Type-C connector assemblies based on your specific mounting or packaging requirements."
+          },
+          {
+            "question": "Is This USB Type-C Receptacle Fully Compatible With Standard 24-Pin USB-C Cables?",
+            "answer": "Yes, it is fully compatible. While this connector has a 16-pin layout physically soldered to the board (optimizing space and cost for power and USB 2.0 data applications), it interfaces seamlessly with standard 24-pin USB Type-C cables."
+          }
+        ],
+        "pdfUrl": "https://datasheet.lcsc.com/datasheet/pdf/9e56b777c022540fcce7c7f67825f55e.pdf?productCode=C165948",
+        "productDescEn": "USB-C (USB TYPE-C) Receptacle Connector 16 Position Surface Mount",
+        "productIntroEn": "USB-C (USB TYPE-C) Receptacle Connector 16 Position Surface Mount",
+        "paramVOList": [
+          {
+            "paramCode": "param_18435",
+            "paramName": "长度",
+            "paramNameEn": "length",
+            "paramValue": "7.35mm",
+            "paramValueEn": "7.35mm",
+            "paramValueEnForSearch": -1.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 168
+          },
+          {
+            "paramCode": "param_13450",
+            "paramName": "协议标准",
+            "paramNameEn": "Protocol Standard",
+            "paramValue": "-",
+            "paramValueEn": "-",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 8
+          },
+          {
+            "paramCode": "param_13455_n",
+            "paramName": "额定电流 - 电源",
+            "paramNameEn": "Current Rating-Power",
+            "paramValue": "5A",
+            "paramValueEn": "5A",
+            "paramValueEnForSearch": 5.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 53
+          },
+          {
+            "paramCode": "param_13453_n",
+            "paramName": "端口数量",
+            "paramNameEn": "Number of Ports",
+            "paramValue": "1",
+            "paramValueEn": "1",
+            "paramValueEnForSearch": 1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 43
+          },
+          {
+            "paramCode": "param_13452",
+            "paramName": "触点数量",
+            "paramNameEn": "Number of Contacts",
+            "paramValue": "16P",
+            "paramValueEn": "16P",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 221
+          },
+          {
+            "paramCode": "param_26713",
+            "paramName": "连接器类型",
+            "paramNameEn": "Connector Type",
+            "paramValue": "Type-C",
+            "paramValueEn": "Type-C",
+            "paramValueEnForSearch": -1.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 2
+          },
+          {
+            "paramCode": "param_26718_n",
+            "paramName": "额定电压",
+            "paramNameEn": "Voltage Rating",
+            "paramValue": "20V",
+            "paramValueEn": "20V",
+            "paramValueEnForSearch": 20.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 44
+          },
+          {
+            "paramCode": "param_13771_s",
+            "paramName": "工作温度",
+            "paramNameEn": "Operating Temperature",
+            "paramValue": "-30℃~+80℃",
+            "paramValueEn": "-30℃~+80℃",
+            "paramValueEnForSearch": null,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 12
+          },
+          {
+            "paramCode": "param_13767",
+            "paramName": "安装方式",
+            "paramNameEn": "Mounting Type",
+            "paramValue": "卧贴",
+            "paramValueEn": "Surface Mount, Right Angle",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 3
+          },
+          {
+            "paramCode": "param_26714",
+            "paramName": "公母",
+            "paramNameEn": "Gender",
+            "paramValue": "母",
+            "paramValueEn": "Female",
+            "paramValueEnForSearch": -1.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 9
+          }
+        ],
+        "wmCatalogId": 842,
+        "wmCatalogNameEn": "USB, DVI, HDMI Connector Assemblies",
+        "productArrange": "Tape & Reel (TR)",
+        "productWeight": 0.000809,
+        "foreignWeight": 0.0,
+        "isForeignOnsale": true,
+        "isForeignDisplay": true,
+        "isNotOverstock": false,
+        "productCycle": "normal",
+        "isHasBattery": false,
+        "pdfLinkUrl": null,
+        "isShowForeignPrice": true,
+        "isRealPrice": true,
+        "productLadderPrice": null,
+        "ladderDiscountRate": null,
+        "eccn": "",
+        "currencyType": "USD",
+        "currencySymbol": "$",
+        "title": "Korean Hroparts Elec TYPE-C-31-M-12",
+        "weight": 0.809,
+        "hasThirdPartyStock": false,
+        "flashSaleProductPO": {
+          "recommendId": 237760,
+          "recommendCode": "TL2606030253",
+          "productId": 177331,
+          "productCode": "C165948",
+          "productModel": "TYPE-C-31-M-12",
+          "brandId": 947,
+          "brandNameEn": "Korean Hroparts Elec",
+          "recommendLevel": "S",
+          "sellPrice": 0.0759,
+          "usdPrice": 0.0759,
+          "sellCurrencyType": "USD",
+          "currencySymbol": "$",
+          "arriveDays": 15,
+          "recommendNumber": 200000,
+          "minOrderNum": 20000,
+          "validNumber": 200000,
+          "warehouseCode": "zh",
+          "expiredTime": "2026-07-03 23:59:59",
+          "expiredSeconds": 211867938,
+          "isOnsale": true,
+          "deliveryTimeWayDays": [
+            16,
+            18
+          ],
+          "isShowForeignPrice": true,
+          "productBatchCode": null,
+          "productBatchCodeEn": null,
+          "isRealPrice": true,
+          "productImageUrl": "https://assets.lcsc.com/images/lcsc/96x96/20260525_Korean-Hroparts-Elec-TYPE-C-31-M-12_C165948_front.jpg",
+          "productImageUrlBig": "https://assets.lcsc.com/images/lcsc/900x900/20260525_Korean-Hroparts-Elec-TYPE-C-31-M-12_C165948_front.jpg",
+          "split": 1000,
+          "encapStandard": "SMD",
+          "isReel": false,
+          "reelPrice": 0,
+          "productIntroEn": "USB-C (USB TYPE-C) Receptacle Connector 16 Position Surface Mount",
+          "isEnvironment": true,
+          "catalogId": 369,
+          "catalogName": "USB Connectors",
+          "parentCatalogId": 365,
+          "parentCatalogName": "Connectors",
+          "productArrange": "Tape & Reel (TR)",
+          "weight": 0.809,
+          "minPacketNumber": 1000,
+          "minPacketUnit": "Reel",
+          "isHot": true,
+          "productCodeHighlight": null,
+          "productModelHighlight": null,
+          "isAsianBrand": null,
+          "firstWmCatalogId": 10,
+          "firstWmCatalogNameEn": "Connectors, Interconnects",
+          "secondWmCatalogId": 178,
+          "secondWmCatalogNameEn": "USB, DVI, HDMI Connectors",
+          "thirdWmCatalogId": 842,
+          "thirdWmCatalogNameEn": "USB, DVI, HDMI Connector Assemblies",
+          "fourthWmCatalogId": null,
+          "fourthWmCatalogNameEn": null,
+          "fifthWmCatalogId": null,
+          "fifthWmCatalogNameEn": null,
+          "sixthWmCatalogId": null,
+          "sixthWmCatalogNameEn": null,
+          "wmCatalogId": 842,
+          "wmCatalogNameEn": "USB, DVI, HDMI Connector Assemblies"
+        },
+        "htsMap": {
+          "BR": "85369010",
+          "TARIC": "8536901000",
+          "IN": "85369010",
+          "CN": "8536901100",
+          "MX": "8536.90.11",
+          "CA": "8536900090",
+          "US": "8536908585"
+        },
+        "isAsianBrand": true,
+        "isMro": false,
+        "isInfringement": false
+      },
+      "ok": true
+    }
+  },
+  "C51118": {
+    "status": 200,
+    "body": {
+      "code": 200,
+      "msg": null,
+      "result": {
+        "parentCatalogList": [
+          {
+            "catalogId": 17,
+            "catalogNameEn": "Integrated Circuits (ICs)"
+          },
+          {
+            "catalogId": 263,
+            "catalogNameEn": "Power Management (PMIC)"
+          }
+        ],
+        "isCableCategory": false,
+        "productId": 52131,
+        "productCode": "C51118",
+        "productModel": "AP2112K-3.3TRG1",
+        "productNameEn": "600mA CMOS LDO REGULATOR WITH ENABLE",
+        "productKeyAttributes": "600mA CMOS LDO REGULATOR WITH ENABLE",
+        "parentCatalogId": 380,
+        "parentCatalogName": "Power Management (PMIC)",
+        "catalogId": 1032,
+        "catalogName": "Voltage Regulators - Linear, Low Drop Out (LDO) Regulators",
+        "brandId": 296,
+        "brandNameEn": "DIODES",
+        "encapStandard": "SOT-25-5",
+        "split": 5,
+        "productUnit": "Piece",
+        "minPacketUnit": "Reel",
+        "minBuyNumber": 5,
+        "maxBuyNumber": -1,
+        "minPacketNumber": 3000,
+        "isEnvironment": true,
+        "allHotLevel": null,
+        "isHot": true,
+        "isPreSale": false,
+        "isReel": true,
+        "reelPrice": 3.0,
+        "stockNumber": 56165,
+        "stockSz": 56165,
+        "domesticStockVO": {
+          "total": 56165,
+          "shipImmediately": 56165,
+          "ship3Days": 0
+        },
+        "overseasStockVO": {
+          "total": 56165,
+          "shipImmediately": 56165,
+          "ship3Days": 0
+        },
+        "productPriceList": [
+          {
+            "ladder": 5,
+            "productPrice": "0.1572",
+            "usdPrice": 0.1572,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.1572,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 50,
+            "productPrice": "0.1242",
+            "usdPrice": 0.1242,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.1242,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 150,
+            "productPrice": "0.1080",
+            "usdPrice": 0.108,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.108,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 500,
+            "productPrice": "0.0936",
+            "usdPrice": 0.0936,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0936,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 3000,
+            "productPrice": "0.0855",
+            "usdPrice": 0.0855,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0855,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          },
+          {
+            "ladder": 6000,
+            "productPrice": "0.0831",
+            "usdPrice": 0.0831,
+            "cnyProductPriceList": null,
+            "discountRate": "1",
+            "currencyPrice": 0.0831,
+            "currencySymbol": "$",
+            "isForeignDiscount": null,
+            "ladderLevel": null
+          }
+        ],
+        "productImages": [
+          "https://assets.lcsc.com/images/lcsc/900x900/20221230_Diodes-Incorporated-AP2112K-3-3TRG1_C51118_front.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20221230_Diodes-Incorporated-AP2112K-3-3TRG1_C51118_back.jpg",
+          "https://assets.lcsc.com/images/lcsc/900x900/20221230_Diodes-Incorporated-AP2112K-3-3TRG1_C51118_blank.jpg"
+        ],
+        "edaSvgInfo": {
+          "schSvg": "//image.easyeda.com/component_svgs/prod/ed114c3e62d8498cbfcaae87b4acc871.svg?t=1732275701",
+          "pcbSvg": "//image.easyeda.com/component_svgs/prod/7ec9305c6bfd40199d1dde43ba8e9df2.svg?t=1732275701"
+        },
+        "faqs": null,
+        "pdfUrl": "https://datasheet.lcsc.com/datasheet/pdf/5b29baebdc4332b382a530ff21092301.pdf?productCode=C51118",
+        "productDescEn": null,
+        "productIntroEn": "3.3V Positive Fixed SOT-25-5 Voltage Regulators - Linear, Low Drop Out (LDO) Regulators RoHS",
+        "paramVOList": [
+          {
+            "paramCode": "param_13614_s",
+            "paramName": "输出电压",
+            "paramNameEn": "Output Voltage",
+            "paramValue": "3.3V",
+            "paramValueEn": "3.3V",
+            "paramValueEnForSearch": null,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 36
+          },
+          {
+            "paramCode": "param_13462_n",
+            "paramName": "输出通道数",
+            "paramNameEn": "Number of Outputs",
+            "paramValue": "1",
+            "paramValueEn": "1",
+            "paramValueEnForSearch": 1.0,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 66
+          },
+          {
+            "paramCode": "param_14524_s",
+            "paramName": "工作温度",
+            "paramNameEn": "Operating Temperature",
+            "paramValue": "-40℃~+85℃@(Ta)",
+            "paramValueEn": "-40℃~+85℃@(Ta)",
+            "paramValueEnForSearch": null,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 20
+          },
+          {
+            "paramCode": "param_31819_n",
+            "paramName": "静态电流(Iq)",
+            "paramNameEn": "Supply Current (Iq)",
+            "paramValue": "55uA",
+            "paramValueEn": "55uA",
+            "paramValueEnForSearch": 5.5e-05,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 29
+          },
+          {
+            "paramCode": "param_13303",
+            "paramName": "输出极性",
+            "paramNameEn": "Output Configuration",
+            "paramValue": "正极",
+            "paramValueEn": "Positive",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 74
+          },
+          {
+            "paramCode": "param_31466_s",
+            "paramName": "工作电压",
+            "paramNameEn": "Operating Voltage",
+            "paramValue": "6V",
+            "paramValueEn": "6V",
+            "paramValueEnForSearch": null,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 1
+          },
+          {
+            "paramCode": "param_15250_n",
+            "paramName": "输出电流",
+            "paramNameEn": "Output Current",
+            "paramValue": "600mA",
+            "paramValueEn": "600mA",
+            "paramValueEnForSearch": 0.6,
+            "isMain": false,
+            "sortNumber": 1,
+            "sort": 35
+          },
+          {
+            "paramCode": "param_13730",
+            "paramName": "输出类型",
+            "paramNameEn": "Output Type",
+            "paramValue": "固定",
+            "paramValueEn": "Fixed",
+            "paramValueEnForSearch": -1.0,
+            "isMain": true,
+            "sortNumber": 1,
+            "sort": 19
+          },
+          {
+            "paramCode": "param_13316",
+            "paramName": "功能特性",
+            "paramNameEn": "Features",
+            "paramValue": "使能控制;输出放电;短路保护;热关断;过流保护",
+            "paramValueEn": "Enable control;Output discharge;Short Circuit Protection;Thermal shutdown;Over Current Protection",
+            "paramValueEnForSearch": null,
+            "isMain": null,
+            "sortNumber": 1,
+            "sort": 86
+          }
+        ],
+        "wmCatalogId": 1032,
+        "wmCatalogNameEn": "Voltage Regulators - Linear, Low Drop Out (LDO) Regulators",
+        "productArrange": "Tape & Reel (TR)",
+        "productWeight": 6.1e-05,
+        "foreignWeight": 0.0,
+        "isForeignOnsale": true,
+        "isForeignDisplay": true,
+        "isNotOverstock": false,
+        "productCycle": "normal",
+        "isHasBattery": false,
+        "pdfLinkUrl": null,
+        "isShowForeignPrice": true,
+        "isRealPrice": true,
+        "productLadderPrice": null,
+        "ladderDiscountRate": null,
+        "eccn": "EAR99",
+        "currencyType": "USD",
+        "currencySymbol": "$",
+        "title": "DIODES AP2112K-3.3TRG1",
+        "weight": 0.061,
+        "hasThirdPartyStock": false,
+        "flashSaleProductPO": null,
+        "htsMap": {
+          "BR": "85423999",
+          "TARIC": "8542399000",
+          "IN": "85423900",
+          "CN": "8542399000",
+          "MX": "8542.39.99",
+          "CA": "8542390000",
+          "US": "8542390001"
+        },
+        "isAsianBrand": null,
+        "isMro": false,
+        "isInfringement": false
+      },
+      "ok": true
+    }
+  }
+}
