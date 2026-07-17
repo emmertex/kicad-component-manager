@@ -108,3 +108,59 @@ def test_sync_libraries_category_with_escaped_value(tmp_path):
     parsed = _parse_sym_file(comp)
     match = next(p for p in parsed if p["lcsc"] == "C11111")
     assert match["category"] == 'Analog "special"'
+
+
+def test_multi_unit_with_special_char_name():
+    """Verify that multi-unit integration works when name contains special characters."""
+    from easyeda2kicad.easyeda.parameters_easyeda import EeSymbol, EeSymbolInfo, EeSymbolBbox
+    from easyeda2kicad.kicad.export_kicad_symbol import ExporterSymbolKicad
+
+    info = EeSymbolInfo(name='TEST/NAME with space', prefix='U', package='PKG', manufacturer='', lcsc_id='C123', description='')
+    bbox = EeSymbolBbox(x=0, y=0, width=10, height=10)
+    ee_symbol = EeSymbol(info=info, bbox=bbox, pins=[], rectangles=[], circles=[], arcs=[], polylines=[], polygons=[], paths=[], ellipses=[], texts=[])
+    sub_symbol = EeSymbol(info=info, bbox=bbox, pins=[], rectangles=[], circles=[], arcs=[], polylines=[], polygons=[], paths=[], ellipses=[], texts=[])
+    ee_symbol.sub_symbols = [sub_symbol]
+
+    exporter = ExporterSymbolKicad(ee_symbol)
+    exported = exporter.export(footprint_lib_name='footprint')
+    assert '_1_1' in exported
+
+
+def test_asymmetric_symbol_origin():
+    """Verify that single-unit symbol extraction uses head coordinates for its origin,
+    instead of the BBox center which can be shifted due to text fields or asymmetric shapes."""
+    from easyeda2kicad.easyeda.easyeda_importer import EasyedaSymbolImporter
+
+    # Mock easyeda response data with asymmetric BBox
+    mock_cad_data = {
+        "dataStr": {
+            "head": {
+                "x": "25",
+                "y": "45",
+                "c_para": {
+                    "name": "TEST_CAP",
+                    "pre": "C",
+                    "package": "0805",
+                }
+            },
+            # BBox center: x = 10 + 40/2 = 30.
+            # Head x: x = 25.
+            # There is a 5px asymmetry difference.
+            "BBox": {
+                "x": "10",
+                "y": "37",
+                "width": "40",
+                "height": "16",
+            },
+            "shape": []
+        }
+    }
+
+    importer = EasyedaSymbolImporter(mock_cad_data)
+    symbol = importer.get_symbol()
+    
+    # The symbol bbox.x and bbox.y must be set to head coordinates (25, 45), not BBox center (30, 45)
+    assert symbol.bbox.x == 25.0
+    assert symbol.bbox.y == 45.0
+
+

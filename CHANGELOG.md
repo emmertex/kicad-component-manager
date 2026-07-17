@@ -1,5 +1,15 @@
 ## v2.0 - KiCad Library Manager
 
+### v2.2.1 - Library Upgrades and Bug Fixes
+
+**Dependencies**
+- Upgraded and pinned all python libraries to their latest versions (requests, lxml, PySide6, beautifulsoup4, pytest).
+
+**Bugs**
+- Fixed a bug in the external `easyeda2kicad` exporter where multi-unit symbols would fail to integrate sub-units if the component name contained spaces, slashes, or colons (due to name sanitization mismatch).
+- Fixed a bug in `easyeda2kicad` symbol extraction where single-unit symbols used the visual bounding box center as their origin instead of the designed head coordinate, resulting in asymmetric graphic components (like capacitors and inductors) having off-grid pins or offset graphics on the Y-axis.
+
+
 ### v2.2.0 - More Stable, and Tests
 
 **Bugs**

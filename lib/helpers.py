@@ -8,6 +8,122 @@ from lib.kicad_escape import KICAD_QUOTED_VALUE_RE, escape_kicad_string, unescap
 
 from .jlc import helper, pdf_downloader
 
+# Monkeypatch easyeda2kicad to fix sub-unit integration with special characters in name
+try:
+    import easyeda2kicad.kicad.export_kicad_symbol
+    from easyeda2kicad.kicad.parameters_kicad_symbol import sanitize_fields
+
+    def patched_integrate_sub_units(
+        main_symbol: str,
+        sub_symbols: list[str],
+        component_name: str,
+    ) -> str:
+        if not sub_symbols:
+            return main_symbol
+
+        sanitized_name = sanitize_fields(component_name)
+        name = re.escape(sanitized_name)
+        sub_units = []
+        for i, sub_content in enumerate(sub_symbols, 1):
+            match = re.search(
+                rf'( +)\(symbol "{name}_0_1".*?\n\1\)(?=\n)', sub_content, re.DOTALL
+            )
+            if match:
+                sub_units.append(
+                    match.group(0).replace(
+                        f'"{sanitized_name}_0_1"', f'"{sanitized_name}_{i}_1"'
+                    )
+                )
+
+        if not sub_units:
+            return main_symbol
+
+        return re.sub(
+            rf'( *)\(symbol "{name}_0_1".*?\n\1\)',
+            "\n".join(sub_units),
+            main_symbol,
+            count=1,
+            flags=re.DOTALL,
+        )
+
+    easyeda2kicad.kicad.export_kicad_symbol.integrate_sub_units = patched_integrate_sub_units
+except ImportError:
+    pass
+
+# Monkeypatch easyeda2kicad to always use head coordinates as origin for single-unit symbols
+try:
+    from easyeda2kicad.easyeda.easyeda_importer import (
+        EasyedaSymbolImporter,
+        EeSymbol,
+        EeSymbolInfo,
+        EeSymbolBbox,
+        fields,
+        easyeda_handlers,
+        convert_fields_to_types,
+        _sanitize_component_name,
+        _safe_float,
+    )
+
+    def patched_extract_unit(self, ee_data, ee_data_info, shared_origin):
+        bbox_data = ee_data["dataStr"].get("BBox", {})
+        bbox_width = _safe_float(bbox_data.get("width"))
+        bbox_height = _safe_float(bbox_data.get("height"))
+
+        if shared_origin is not None:
+            # Multi-unit symbol: all units use the same canvas origin so their
+            # geometry stays aligned when placed together in a schematic.
+            origin_x, origin_y = shared_origin
+        else:
+            # ALWAYS use the head coordinate as the origin!
+            # Using BBox center shifts the origin on asymmetric shapes (e.g. capacitors, inductors)
+            # which pushes pins off-grid and offsets graphics relative to pins.
+            head_data = ee_data["dataStr"]["head"]
+            origin_x = _safe_float(head_data.get("x")) or 0.0
+            origin_y = _safe_float(head_data.get("y")) or 0.0
+
+        lcsc_dict = ee_data.get("lcsc") or {}
+        lcsc_number = lcsc_dict.get("number", "")
+
+        new_ee_symbol = EeSymbol(
+            info=EeSymbolInfo(
+                name=_sanitize_component_name(ee_data_info["name"]),
+                prefix=ee_data_info["pre"],
+                package=ee_data_info.get("package", ""),
+                manufacturer=ee_data_info.get("Manufacturer", "")
+                or ee_data_info.get("BOM_Manufacturer", ""),
+                mpn=ee_data_info.get("Manufacturer Part", "")
+                or ee_data_info.get("BOM_Manufacturer Part", ""),
+                datasheet=lcsc_dict.get("url", "")
+                or (
+                    f"https://www.lcsc.com/datasheet/{lcsc_number}.pdf"
+                    if lcsc_number
+                    else ""
+                ),
+                lcsc_id=lcsc_number,
+                keywords=" ".join(ee_data.get("tags", [])),
+                description=ee_data.get("description", ""),
+            ),
+            bbox=EeSymbolBbox(
+                x=origin_x,
+                y=origin_y,
+                width=bbox_width,
+                height=bbox_height,
+            ),
+        )
+
+        for line in ee_data["dataStr"]["shape"]:
+            designator = line.split("~")[0]
+            if designator in easyeda_handlers:
+                easyeda_handlers[designator](line, new_ee_symbol)
+            else:
+                logging.warning(f"Unknown symbol designator: {designator}")
+
+        return new_ee_symbol
+
+    EasyedaSymbolImporter._extract_unit = patched_extract_unit
+except (ImportError, AttributeError):
+    pass
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 # Minimum bytes for a valid PDF.
 # Files smaller than this are usually placeholder/error HTML pages from LCSC.
