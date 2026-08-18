@@ -1,14 +1,12 @@
 """Headless command-line import.
 
-Runs the exact same import pipeline as the GUI (the ``Worker`` thread), but
-driven from the terminal with a minimal event loop and console logging.
+Runs the same import pipeline as the GUI Worker, with console logging.
 """
 
-import json
 import sys
+import threading
 
-from gui.widgets import CACHE_FILE, MAX_RECENT
-
+from gui.cache import bump_recent, load_cache, save_cache
 
 def _out(msg):
     print(msg, flush=True)
@@ -18,25 +16,16 @@ def _err(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
-def _load_cache():
-    try:
-        return json.loads(CACHE_FILE.read_text())
-    except Exception:
-        return {}
-
-
 def save_library_path(path):
     """Persist a library location to the shared cache (front of recent_dirs)."""
-    d = _load_cache()
-    recent = [r for r in d.get("recent_dirs", []) if r != path]
-    recent.insert(0, path)
-    d["recent_dirs"] = recent[:MAX_RECENT]
-    CACHE_FILE.write_text(json.dumps(d, indent=2))
+    d = load_cache()
+    d["recent_dirs"] = bump_recent(d.get("recent_dirs", []), path)
+    save_cache(d)
 
 
 def cfg_from_cache():
     """Build a worker config from the cached settings, or None if no library."""
-    d = _load_cache()
+    d = load_cache()
     recent = d.get("recent_dirs", [])
     output_dir = recent[0] if recent else ""
     if not output_dir:
@@ -53,30 +42,25 @@ def cfg_from_cache():
 
 def run_import(pids, cfg):
     """Import every pid headlessly. Returns a process exit code (0 = all ok)."""
-    from PySide6.QtCore import QCoreApplication, QTimer
-
     from gui.worker import Worker
     from lib.helpers import ensure_libraries
 
-    app = QCoreApplication(sys.argv)
     ensure_libraries(cfg["output_dir"], cfg["lib_prefix"], cfg.get("lib_mode", "organised"))
 
-    worker = Worker()
+    done = threading.Event()
     remaining = set(pids)
     failures = {}
 
     def _finish(pid):
         remaining.discard(pid)
         if not remaining:
-            QTimer.singleShot(0, app.quit)
+            done.set()
 
-    # NOTE: these slots must not use the logging module — the worker installs a
-    # root-logger handler that re-emits records through log_line, so logging here
-    # would recurse infinitely. Print directly instead.
     def _on_log(pid, msg):
         _out(f"[{pid}] {msg}")
 
     def _on_done(pid, step, ok, extra):
+        extra = extra or {}
         if ok:
             _out(f"[{pid}] {step}: OK")
         else:
@@ -84,17 +68,17 @@ def run_import(pids, cfg):
             _err(f"[{pid}] {step}: FAIL {err}".rstrip())
             if step == "valid":
                 failures[pid] = err or "validation failed"
-        # A part is done after its final step (pdf) or an early validate failure.
         if step == "pdf" or (step == "valid" and not ok):
             _finish(pid)
 
-    worker.log_line.connect(_on_log)
-    worker.step_done.connect(_on_done)
+    worker = Worker()
+    worker.on_log_line = _on_log
+    worker.on_step_done = _on_done
     worker.start()
     for pid in pids:
         worker.process(pid, cfg)
 
-    app.exec()
+    done.wait()
     worker.stop()
     worker.wait(2000)
 
@@ -136,7 +120,7 @@ def run_cli(args):
     if cfg is None:
         _err(
             "No library location set. Set one first:\n"
-            "  python gui2.py --set-library /path/to/library"
+            "  python manager.py --set-library /path/to/library"
         )
         return 2
 

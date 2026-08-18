@@ -1,9 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTableWidgetItem
-
 # ── Column Indices ───────────────────────────────────────────────────────────
 (
     C_PART,
@@ -107,7 +104,15 @@ STEP_COLS = {
 
 COL_STEPS = {v: k for k, v in STEP_COLS.items()}
 
-# Detail-panel metadata fields: (label, PartState attr, editable)
+BOM_STEP_COLS = {
+    "valid": CB_VALID,
+    "symbol": CB_SYM,
+    "footprint": CB_FP,
+    "step": CB_STEP,
+    "pdf": CB_PDF,
+    "jlc": CB_JLC,
+}
+
 METADATA_FIELDS = [
     ("LCSC Part #", "pid", False),
     ("Value", "value", True),
@@ -121,7 +126,6 @@ METADATA_FIELDS = [
     ("Stock", "stock", False),
 ]
 
-# PartState attr → table column index (for live cell updates on edit)
 ATTR_COL = {
     "value": C_VALUE,
     "description": C_DESC,
@@ -132,7 +136,6 @@ ATTR_COL = {
     "attributes": C_ATTRS,
 }
 
-# PartState attr → KiCad symbol property name(s) to patch
 ATTR_PROP: dict[str, str | list] = {
     "value": "Value",
     "description": ["Description_1", "Description"],
@@ -168,17 +171,6 @@ ST_SORT = {
 }
 
 
-class _SortItem(QTableWidgetItem):
-    """QTableWidgetItem that sorts by Qt.UserRole when set, else display text."""
-
-    def __lt__(self, other):
-        lv = self.data(Qt.UserRole)
-        rv = other.data(Qt.UserRole)
-        if lv is not None and rv is not None:
-            return lv < rv
-        return super().__lt__(other)
-
-
 @dataclass
 class PartState:
     pid: str
@@ -205,3 +197,92 @@ class PartState:
 
     def put(self, name, v):
         setattr(self, name, v)
+
+
+def group_bom_parts(bom_data: list) -> list[dict]:
+    groups: dict = {}
+    order = []
+    for p in bom_data:
+        key = (p["lcsc"], p["val"]) if p["lcsc"] else (None, p["val"], p["fp"])
+        if key not in groups:
+            groups[key] = {
+                "refs": [],
+                "val": p["val"],
+                "lcsc": p["lcsc"],
+                "fp": p["fp"],
+            }
+            order.append(key)
+        groups[key]["refs"].append(p["ref"])
+    return [groups[k] for k in order]
+
+
+def is_pcb_linked(pid: str, refs: list, fp_name_text: str, pcb_refs: dict):
+    """True if all refs use our lib:footprint, False if not, None if unknown."""
+    if not pid or not refs or not fp_name_text or ":" not in fp_name_text:
+        return None
+    our_lib, our_fp_name = fp_name_text.split(":", 1)
+    if not our_fp_name:
+        return None
+    for ref in refs:
+        pcb_info = pcb_refs.get(ref, {})
+        if pcb_info.get("lib") != our_lib or pcb_info.get("fp") != our_fp_name:
+            return False
+    return True
+
+
+def row_subtotal(qty: int, price_str: str) -> str | None:
+    import re
+
+    match = re.search(r"(\d+\.?\d*)", price_str or "")
+    if not match:
+        return None
+    try:
+        return f"${qty * float(match.group(1)):.2f}"
+    except ValueError:
+        return None
+
+
+def apply_step_result(state: PartState, step: str, ok: bool, extra: dict) -> St:
+    """Update PartState from a worker step_done payload. Returns new status."""
+    extra = extra or {}
+    if step == "pdf":
+        url = extra.get("url", "")
+        if extra.get("skipped"):
+            ns = St.SKIPPED
+        elif ok:
+            ns = St.SUCCESS
+            url = ""
+        else:
+            ns = St.FAILED
+        state.put("pdf", ns)
+        state.pdf_url = url
+        return ns
+    ns = St.SUCCESS if ok else St.FAILED
+    state.put(step, ns)
+    if step == "footprint" and ok and extra.get("fp_name"):
+        state.fp_name_text = extra["fp_name"]
+    if step in ("symbol", "jlc") and ok:
+        for attr in (
+            "value",
+            "description",
+            "package",
+            "mfr",
+            "category",
+            "attributes",
+            "price",
+            "stock",
+        ):
+            val = extra.get(attr, "")
+            if val:
+                setattr(state, attr, val)
+    if step == "valid" and ok:
+        key_map = {
+            "symbol": "sym_ok",
+            "footprint": "fp_ok",
+            "step": "step_ok",
+            "pdf": "pdf_ok",
+        }
+        for sub, key in key_map.items():
+            if extra.get(key):
+                state.put(sub, St.SUCCESS)
+    return ns

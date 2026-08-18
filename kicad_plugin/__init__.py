@@ -27,7 +27,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-import pcbnew
+import pcbnew  # type: ignore[import-not-found]
 
 _PLUGIN_DIR = Path(__file__).parent.resolve()
 _ICON = _PLUGIN_DIR / "icon.png"
@@ -43,9 +43,6 @@ _GUI_CANDIDATES = [
 ]
 
 
-# ── Logging ───────────────────────────────────────────────────────────────────
-
-
 def _log(msg: str):
     try:
         with open(_LOG_FILE, "a") as f:
@@ -54,7 +51,34 @@ def _log(msg: str):
         pass
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+def _load_wx():
+    """KiCad's plugin interpreter is not the venv used to launch manager.py."""
+    try:
+        import wx  # type: ignore[import-not-found]
+
+        return wx
+    except Exception as e:
+        _log(f"wx not available in KiCad Python: {e}")
+        return None
+
+
+def _notify(title, msg, wx_mod=None, kind="error"):
+    """Dialog when wx is present; otherwise log only (no pcbnew UI)."""
+    _log(f"{title}: {msg}")
+    if wx_mod is None:
+        wx_mod = _load_wx()
+    if wx_mod is None:
+        return None
+    flags = {
+        "error": wx_mod.OK | wx_mod.ICON_ERROR,
+        "info": wx_mod.OK | wx_mod.ICON_INFORMATION,
+        "question": wx_mod.YES_NO | wx_mod.ICON_QUESTION,
+    }.get(kind, wx_mod.OK | wx_mod.ICON_ERROR)
+    try:
+        return wx_mod.MessageBox(msg, title, flags)
+    except Exception as e:
+        _log(f"wx.MessageBox failed: {e}")
+        return None
 
 
 def _find_gui():
@@ -80,7 +104,6 @@ def _find_python(gui: Path) -> str:
         gui.parent.parent / "venv" / _VBIN / _VPY,
     ]
     if _WIN:
-        # KiCad's own Python lives next to kicad.exe
         candidates.append(Path(sys.executable).parent / _VPY)
 
     for p in candidates:
@@ -129,29 +152,36 @@ def _create_venv(
         return False, str(e)
 
 
-# ── Action plugins ────────────────────────────────────────────────────────────
-
-
 class KiCadComponentManagerAction(pcbnew.ActionPlugin):
     def defaults(self):
         self.name = "KiCad Component Manager"
         self.category = "Library Management"
-        self.description = "Download and manage KiCad components from multiple sources"
+        self.description = (
+            "Download LCSC parts and manage the project BOM in one window"
+        )
         self.show_toolbar_button = True
         if _ICON.exists():
             self.icon_file_name = str(_ICON)
 
     def Run(self):
-        _run_manager(mode="manager")
+        board = None
+        try:
+            board = pcbnew.GetBoard()
+        except Exception:
+            board = None
+        if board is not None and board.GetFileName():
+            _run_manager(mode="bom")
+        else:
+            _run_manager(mode="manager")
 
 
 class KiCadBOMManagerAction(pcbnew.ActionPlugin):
+    """Kept so existing toolbar shortcuts still work; same single window."""
+
     def defaults(self):
         self.name = "KiCad BOM Manager"
         self.category = "Library Management"
-        self.description = (
-            "Generate BOM, fetch prices and manage LCSC parts for the current PCB"
-        )
+        self.description = "Open Component Manager on the BOM tab for the current PCB"
         self.show_toolbar_button = True
         if _ICON.exists():
             self.icon_file_name = str(_ICON)
@@ -167,33 +197,28 @@ def _run_manager(mode="manager"):
     _log(f"sys.version    = {sys.version}")
     _log(f"_PLUGIN_DIR    = {_PLUGIN_DIR}")
 
-    try:
-        import wx
+    wx = _load_wx()
 
-        # ── Locate manager.py ────────────────────────────────────────────────────
+    try:
         gui = _find_gui()
         if gui is None:
             msg = "manager.py not found.\n\nExpected locations:\n" + "\n".join(
                 f"  {p}" for p in _GUI_CANDIDATES
             )
-            _log(msg)
-            wx.MessageBox(
-                msg, "KiCad Component Manager — Launch Error", wx.OK | wx.ICON_ERROR
-            )
+            _notify("KiCad Component Manager — Launch Error", msg, wx)
             return
 
         _log(f"Using gui: {gui}")
         python = _find_python(gui)
         _log(f"Using python: {python}")
 
-        # ── Check all required packages are importable ────────────────────────
         _log("Testing required imports...")
         try:
             result = subprocess.run(
                 [
                     python,
                     "-c",
-                    "import PySide6, requests, lxml, bs4, KicadModTree; print('ok')",
+                    "import wx, requests, lxml, bs4, KicadModTree; print('ok')",
                 ],
                 capture_output=True,
                 timeout=15,
@@ -212,20 +237,26 @@ def _run_manager(mode="manager"):
             requirements = gui.parent / "requirements.txt"
             if not requirements.exists():
                 msg = (
-                    f"PySide6 is not available with:\n  {python}\n\n"
-                    "Install it with:  pip install PySide6"
+                    f"wxPython is not available with:\n  {python}\n\n"
+                    "Install it with:  pip install wxPython"
                 )
-                _log(msg)
-                wx.MessageBox(
-                    msg,
-                    "KiCad Component Manager — Missing Dependency",
-                    wx.OK | wx.ICON_ERROR,
+                _notify("KiCad Component Manager — Missing Dependency", msg, wx)
+                return
+
+            if wx is None:
+                _notify(
+                    "KiCad Component Manager — First-time Setup",
+                    "Dependencies are missing and wxPython is not available in "
+                    "KiCad's Python, so the install prompt cannot be shown.\n\n"
+                    f"Install into a venv at {gui.parent / 'venv'} then retry.\n"
+                    f"Log: {_LOG_FILE}",
+                    wx,
                 )
                 return
 
             answer = wx.MessageBox(
                 "KiCad Component Manager needs Python dependencies that are\n"
-                "not currently installed (PySide6, requests, lxml, etc.).\n\n"
+                "not currently installed (wxPython, requests, lxml, etc.).\n\n"
                 f"A virtual environment will be created at:\n  {gui.parent / 'venv'}\n\n"
                 "This is a one-time setup (~1–2 minutes).\n\nInstall now?",
                 "KiCad Component Manager — First-time Setup",
@@ -242,16 +273,15 @@ def _run_manager(mode="manager"):
             _log(f"Venv creation: ok={ok} err={err}")
 
             if not ok:
-                wx.MessageBox(
-                    f"Dependency installation failed:\n\n{err}",
+                _notify(
                     "KiCad Component Manager — Setup Failed",
-                    wx.OK | wx.ICON_ERROR,
+                    f"Dependency installation failed:\n\n{err}",
+                    wx,
                 )
                 return
 
             python = str(venv_dir / _VBIN / _VPY)
 
-        # ── Data extraction for BOM mode ──────────────────────────────────────
         args = [python, str(gui)]
         if mode == "bom":
             import json
@@ -260,11 +290,17 @@ def _run_manager(mode="manager"):
             board = pcbnew.GetBoard()
             parts = []
             for fp in board.GetFootprints():
-                # Try specific known field names first (fast path)
                 lcsc_pn = ""
                 for field_name in [
-                    "LCSC", "LCSC Part #", "LCSC Part Number", "LCSC#",
-                    "lcsc", "LCSC_PN", "LCSC Part", "JLC", "JLCPCB",
+                    "LCSC",
+                    "LCSC Part #",
+                    "LCSC Part Number",
+                    "LCSC#",
+                    "lcsc",
+                    "LCSC_PN",
+                    "LCSC Part",
+                    "JLC",
+                    "JLCPCB",
                 ]:
                     fobj = fp.GetField(field_name)
                     if fobj:
@@ -273,7 +309,6 @@ def _run_manager(mode="manager"):
                             lcsc_pn = val
                             break
 
-                # Scan ALL custom fields for anything containing "lcsc"
                 if not lcsc_pn:
                     try:
                         for field in fp.GetFields():
@@ -286,7 +321,6 @@ def _run_manager(mode="manager"):
                     except Exception:
                         pass
 
-                # Last resort: scan all field values for LCSC part number pattern
                 if not lcsc_pn:
                     try:
                         for field in fp.GetFields():
@@ -297,7 +331,6 @@ def _run_manager(mode="manager"):
                     except Exception:
                         pass
 
-                # Original fallback: check Value field
                 if not lcsc_pn:
                     val = fp.GetValue()
                     match = re.search(r"(C\d{4,})", val)
@@ -325,50 +358,47 @@ def _run_manager(mode="manager"):
                 args.extend(["--bom", f.name])
             _log(f"BOM data saved to {f.name}")
 
-        # ── Launch manager.py ────────────────────────────────────────────────────
         _log(f"Launching: {' '.join(args)}")
         gui_log = _LOG_FILE.parent / ".kicad_component_manager_gui.log"
-        if _WIN:
-            detach_kwargs = {
-                "creationflags": subprocess.DETACHED_PROCESS
-                | subprocess.CREATE_NEW_PROCESS_GROUP,
-            }
-        else:
-            detach_kwargs = {"start_new_session": True}
         try:
             with open(gui_log, "a") as gui_stderr:
-                proc = subprocess.Popen(
-                    args,
-                    cwd=str(gui.parent),
-                    stdout=gui_stderr,
-                    stderr=gui_stderr,
-                    **detach_kwargs,
-                )
+                if _WIN:
+                    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+                        subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+                    )
+                    proc = subprocess.Popen(
+                        args,
+                        cwd=str(gui.parent),
+                        stdout=gui_stderr,
+                        stderr=gui_stderr,
+                        creationflags=flags,
+                    )
+                else:
+                    proc = subprocess.Popen(
+                        args,
+                        cwd=str(gui.parent),
+                        stdout=gui_stderr,
+                        stderr=gui_stderr,
+                        start_new_session=True,
+                    )
             _log(f"Popen succeeded, pid={proc.pid}  (gui stderr → {gui_log})")
         except Exception as e:
-            _log(f"Popen failed: {e}")
-            wx.MessageBox(
+            _notify(
+                "KiCad Component Manager — Launch Error",
                 f"Failed to launch KiCad Component Manager.\n\n"
                 f"Python:  {python}\n"
                 f"Script:  {gui}\n\n"
                 f"Error: {e}",
-                "KiCad Component Manager — Launch Error",
-                wx.OK | wx.ICON_ERROR,
+                wx,
             )
 
     except Exception:
         tb = traceback.format_exc()
-        _log(f"UNHANDLED EXCEPTION in Run():\n{tb}")
-        try:
-            import wx
-
-            wx.MessageBox(
-                f"KiCad Component Manager error:\n\n{tb}",
-                "KiCad Component Manager — Error",
-                wx.OK | wx.ICON_ERROR,
-            )
-        except Exception as wx_err:
-            _log(f"wx.MessageBox also failed: {wx_err}")
+        _notify(
+            "KiCad Component Manager — Error",
+            f"KiCad Component Manager error:\n\n{tb}",
+            wx,
+        )
 
 
 _log(f"Plugin module loading from {_PLUGIN_DIR}")

@@ -1,3 +1,25 @@
+## v3.0 - Single-window wxPython
+
+### v3.0.0 - Native KiCad GUI
+
+**UI**
+- Library Manager and BOM Manager are now one wxPython window (two notebook tabs), matching KiCad's native toolkit.
+- Replaced PySide6 with wxPython.
+- Settings and Bulk Import dialogs parent their OK/Cancel buttons correctly so they actually appear on GTK.
+
+**Plugin**
+- Both toolbar actions launch the same window; BOM tab is filled when a board is open.
+- `import wx` in KiCad's Python is optional: if it is missing, the plugin still launches manager.py from the venv and logs instead of crashing.
+
+**Internals**
+- Import worker is a background thread with callbacks (`wx.CallAfter`), not Qt.
+- CLI import no longer needs a Qt event loop.
+- GUI-free helpers for cache, part state, and schematic/PCB patches, with unit tests.
+
+**Dependencies**
+- `wxPython>=4.2.0` replaces PySide6.
+
+
 ## v2.0 - KiCad Library Manager
 
 ### v2.2.1 - Library Upgrades and Bug Fixes

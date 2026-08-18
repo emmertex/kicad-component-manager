@@ -15,9 +15,6 @@ from easyeda2kicad.easyeda.easyeda_importer import (
 from easyeda2kicad.kicad.export_kicad_3d_model import Exporter3dModelKicad
 from easyeda2kicad.kicad.export_kicad_footprint import ExporterFootprintKicad
 from easyeda2kicad.kicad.export_kicad_symbol import ExporterSymbolKicad
-from PySide6.QtCore import QThread, Signal
-
-from gui.models import St
 from lib.api import fetch_component_data
 from lib.categories import resolve_category
 from lib.helpers import (
@@ -42,16 +39,38 @@ class _Cap(logging.Handler):
             pass
 
 
-class Worker(QThread):
-    step_started = Signal(str, str)
-    step_done = Signal(str, str, bool, dict)
-    log_line = Signal(str, str)
-    scrape_done = Signal(str, dict)
+class Worker:
+    """Background import worker. Callbacks marshalled to the GUI thread."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, marshal=None):
+        self.marshal = marshal
+        self.on_step_started = None  # type: ignore[assignment]
+        self.on_step_done = None  # type: ignore[assignment]
+        self.on_log_line = None  # type: ignore[assignment]
+        self.on_scrape_done = None  # type: ignore[assignment]
         self._q: Queue = Queue()
         self._cache: dict[str, dict] = {}
+        self._thread = None
+
+    def _emit(self, cb, *args):
+        if cb is None:
+            return
+        if self.marshal:
+            self.marshal(cb, *args)
+        else:
+            cb(*args)
+
+    def start(self):
+        import threading
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(target=self.run, daemon=True)
+        self._thread.start()
+
+    def wait(self, timeout_ms=2000):
+        if self._thread:
+            self._thread.join((timeout_ms or 0) / 1000)
+
 
     def process(self, pid, cfg, overwrite=False):
         self._q.put(("new", pid, cfg, overwrite))
@@ -110,7 +129,7 @@ class Worker(QThread):
             self._do_pdf(pid, c, cfg)
         elif not cfg["dl_pdf"]:
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
-            self.step_done.emit(pid, "pdf", True, {"skipped": True, "url": url})
+            self._emit(self.on_step_done, pid, "pdf", True, {"skipped": True, "url": url})
 
     def _do_retry(self, pid, step, cfg):
         c = self._cache.setdefault(pid, {})
@@ -135,7 +154,7 @@ class Worker(QThread):
 
     # ── Steps ─────────────────────────────────────────────────────────────────
     def _do_validate(self, pid, cfg):
-        self.step_started.emit(pid, "valid")
+        self._emit(self.on_step_started, pid, "valid")
         log = self._logfn(pid)
         try:
             api = EasyedaApi()
@@ -175,24 +194,24 @@ class Worker(QThread):
                 "lcsc_url": f"https://www.lcsc.com/product-detail/{pid}.html",
                 **existing,
             }
-            self.step_done.emit(pid, "valid", True, extra)
+            self._emit(self.on_step_done, pid, "valid", True, extra)
             return True, extra
         except Exception as e:
             log(f"FAIL: {e}")
-            self.step_done.emit(pid, "valid", False, {"error": str(e)})
+            self._emit(self.on_step_done, pid, "valid", False, {"error": str(e)})
             return False, {}
 
     def _do_footprint(self, pid, c, cfg):
         fp_uuid = c.get("fp_uuid")
         if not fp_uuid:
-            self.step_done.emit(
+            self._emit(self.on_step_done, 
                 pid, "footprint", False, {"error": "No UUID — re-run Valid"}
             )
             return
         inc = cfg["dl_step"]
-        self.step_started.emit(pid, "footprint")
+        self._emit(self.on_step_started, pid, "footprint")
         if inc:
-            self.step_started.emit(pid, "step")
+            self._emit(self.on_step_started, pid, "step")
 
         log = self._logfn(pid)
         try:
@@ -236,7 +255,7 @@ class Worker(QThread):
 
             c["fp_name"] = f"footprint:{fp_name}"
 
-            self.step_done.emit(pid, "footprint", True, {"fp_name": c["fp_name"]})
+            self._emit(self.on_step_done, pid, "footprint", True, {"fp_name": c["fp_name"]})
 
             if inc:
                 log(f"Exporting 3D model for {pid}...")
@@ -253,19 +272,19 @@ class Worker(QThread):
                     exporter_3d.export(str(model_abs_dir), overwrite=True)
 
                     step_ok = (model_abs_dir / f"{model_3d.name}.step").exists()
-                    self.step_done.emit(pid, "step", step_ok, {})
+                    self._emit(self.on_step_done, pid, "step", step_ok, {})
                 else:
                     log("No 3D model found for this part.")
-                    self.step_done.emit(pid, "step", False, {"error": "No 3D model"})
+                    self._emit(self.on_step_done, pid, "step", False, {"error": "No 3D model"})
 
         except Exception as e:
             log(f"Footprint error: {e}")
-            self.step_done.emit(pid, "footprint", False, {"error": str(e)})
+            self._emit(self.on_step_done, pid, "footprint", False, {"error": str(e)})
             if inc:
-                self.step_done.emit(pid, "step", False, {})
+                self._emit(self.on_step_done, pid, "step", False, {})
 
     def _do_symbol(self, pid, c, cfg):
-        self.step_started.emit(pid, "symbol")
+        self._emit(self.on_step_started, pid, "symbol")
         log = self._logfn(pid)
         try:
             api = EasyedaApi()
@@ -400,7 +419,7 @@ class Worker(QThread):
                     log(f"Warning: could not write symbol to {lib_path.name}: {we}")
 
             # Extract attributes for the GUI
-            self.step_done.emit(
+            self._emit(self.on_step_done, 
                 pid,
                 "symbol",
                 True,
@@ -422,11 +441,11 @@ class Worker(QThread):
 
             err_msg = f"Symbol error: {e}\n{traceback.format_exc()}"
             log(err_msg)
-            self.step_done.emit(pid, "symbol", False, {"error": str(e)})
+            self._emit(self.on_step_done, pid, "symbol", False, {"error": str(e)})
 
     def _do_pdf(self, pid, c, cfg):
         h = _Cap(self._logfn(pid))
-        self.step_started.emit(pid, "pdf")
+        self._emit(self.on_step_started, pid, "pdf")
         logging.getLogger().addHandler(h)
         try:
             ok, path, err = pdf_downloader.download_pdf(pid, cfg["output_dir"])
@@ -444,16 +463,16 @@ class Worker(QThread):
                 _update_symbol_datasheet(pid, cfg["output_dir"], local_ds)
                 c["ds_link"] = local_ds
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
-            self.step_done.emit(pid, "pdf", ok, {"url": url, "error": err or ""})
+            self._emit(self.on_step_done, pid, "pdf", ok, {"url": url, "error": err or ""})
         except Exception as e:
             self._logfn(pid)(f"PDF error: {e}")
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
-            self.step_done.emit(pid, "pdf", False, {"url": url, "error": str(e)})
+            self._emit(self.on_step_done, pid, "pdf", False, {"url": url, "error": str(e)})
         finally:
             logging.getLogger().removeHandler(h)
 
     def _do_jlc(self, pid, c, cfg):
-        self.step_started.emit(pid, "jlc")
+        self._emit(self.on_step_started, pid, "jlc")
         log = self._logfn(pid)
         try:
             log(f"Fetching LCSC data for {pid}…")
@@ -468,7 +487,7 @@ class Worker(QThread):
                 )
 
             cat = resolve_category(info.get("category", ""))
-            self.step_done.emit(
+            self._emit(self.on_step_done, 
                 pid,
                 "jlc",
                 True,
@@ -488,19 +507,19 @@ class Worker(QThread):
             # Actually, let's keep it as SUCCESS if we want to continue,
             # or FAILED if we want to show a red cross.
             # Given it's a fallback, let's show SUCCESS but log the warning.
-            self.step_done.emit(pid, "jlc", True, {"error": str(e)})
+            self._emit(self.on_step_done, pid, "jlc", True, {"error": str(e)})
 
     def _do_scrape(self, pid):
-        self.log_line.emit(pid, f"Scraping LCSC data for {pid}…")
+        self._emit(self.on_log_line, pid, f"Scraping LCSC data for {pid}…")
         data = fetch_component_data(pid)
         if data:
-            self.log_line.emit(pid, f"Scrape OK — got: {', '.join(data.keys())}")
+            self._emit(self.on_log_line, pid, f"Scrape OK — got: {', '.join(data.keys())}")
         else:
-            self.log_line.emit(pid, "Scrape returned no data")
-        self.scrape_done.emit(pid, data)
+            self._emit(self.on_log_line, pid, "Scrape returned no data")
+        self._emit(self.on_scrape_done, pid, data)
 
     def _logfn(self, pid):
         def _l(msg):
-            self.log_line.emit(pid, msg)
+            self._emit(self.on_log_line, pid, msg)
 
         return _l

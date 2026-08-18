@@ -69,7 +69,7 @@ A KiCad plugin for downloading and managing LCSC components with integrated BOM 
 **Backend**
 - easyeda2kicad.py for robust conversion
 - LCSC and JLCPCB API integration
-- PySide6 GUI with configurable columns and sorting
+- wxPython single-window GUI (Library + BOM tabs) with configurable columns
 - Full debug logging to `~/.lcsc2kicad_plugin.log`
 
 **Platform Support**
