@@ -1,0 +1,11 @@
+{
+  "C25804": {
+    "error": "API request failed: 404 Client Error: Not Found for url: https://api.jlcpcb.com/components/v1/component/C25804"
+  },
+  "C49678": {
+    "error": "API request failed: 404 Client Error: Not Found for url: https://api.jlcpcb.com/components/v1/component/C49678"
+  },
+  "C8734": {
+    "error": "API request failed: 404 Client Error: Not Found for url: https://api.jlcpcb.com/components/v1/component/C8734"
+  }
+}

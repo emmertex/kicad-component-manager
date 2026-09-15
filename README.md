@@ -6,9 +6,10 @@ A KiCad Library Manager and BOM Manager that downloads and manages LCSC componen
 
 ## Features
 
-### Library Manager
+Library Manager and BOM Manager live in **one wxPython window** (two notebook tabs),
+matching KiCad's native toolkit.
 
-![Library Manager Screenshot](images/Screenshot_20260521_110841.png)
+### Library Manager
 
 - Enter an LCSC part number and press **Enter** or **Import** — the part is queued immediately
 - Bulk Import — paste a list of part numbers or load them from a file
@@ -30,7 +31,7 @@ A KiCad Library Manager and BOM Manager that downloads and manages LCSC componen
 
 ![BOM Manager Screenshot](images/Screenshot_20260521_110943.png)
 
-> **Note:** The BOM Manager must be launched from within KiCad and requires the plugin to be installed.
+> **Note:** The BOM tab is populated from a PCB scan when you launch the plugin from KiCad.
 
 - Reads all components from the open PCB and displays them grouped by part, with designators, values, descriptions, and quantities
 - Instantly highlights parts missing an LCSC part number or a 3D STEP model
@@ -67,6 +68,9 @@ Clicking a row shows the download log for that part in the panel below the table
 
 ## Installation
 
+Use **Python 3.13 or newer** for the component manager. Ensure the `python` or
+`python3` command used below points to that version before creating the virtual environment.
+
 ### Standalone (no KiCad integration)
 
 **BOM Manager will not work** without KiCad integration.
@@ -88,17 +92,19 @@ python manager.py
 
 ---
 
-## KiCad Plugin Installation (Reccomended)
+## KiCad Plugin Installation (Recommended)
+
+Use **Python 3.13 or newer** for the component manager's interpreter or virtual environment.
 
 ### Option 1 — Install from File (Recommended for most users (for now))
 
 The PCM zip is self-contained: it bundles the application and the full backend.
-Python dependencies (PySide6, requests, etc.) are handled automatically on first use.
+Python dependencies (wxPython, requests, etc.) are handled automatically on first use.
 
 1. Download the latest PCB from Releases: [Download](https://github.com/emmertex/kicad-component-manager/releases)
 2. In KiCad: **Plugin and Content Manager → Install from File** → select the zip. and install.
 3. Click **KiCad Component Manager** or **BOM Manager** in the toolbar or via **Tools → External Plugins**.
-   - If PySide6 is already installed system-wide, the GUI launches immediately.
+   - If wxPython is already available (including KiCad's own Python), the GUI launches immediately.
    - If not, a one-time setup dialog offers to create a local venv and install all
      dependencies automatically (~1–2 minutes). After that, subsequent launches are instant.
 
@@ -125,7 +131,8 @@ rm ~/.local/share/kicad/10.0/scripting/plugins/lcsc2kicad
 
 ## Credits
 
-Built upon:
+While there is little of the original code left, it would never have existed without their work.
+Thank you for your contributions!
 
 - [JLC2KiCad_lib](https://github.com/TousstNicolas/JLC2KiCad_lib) by TousstNicolas — core symbol/footprint/3D model conversion (MIT)
 - [lcsc2kicad](https://github.com/DasBasti/lcsc2kicad) by DasBasti — LCSC component handling approach (MIT)
@@ -134,7 +141,7 @@ Built upon:
 
 ## Changelog
 
-See [CHANGELOG.md](changelog.md) for an overview of release notes.
+See [CHANGELOG.md](CHANGELOG.md) for an overview of release notes.
 
 ---
 

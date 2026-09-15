@@ -1,4 +1,66 @@
+## v3.0 - Single-window wxPython
+
+### v3.0.0 - Native KiCad GUI
+
+**UI**
+- Library Manager and BOM Manager are now one wxPython window (two notebook tabs), matching KiCad's native toolkit.
+- Replaced PySide6 with wxPython.
+- Settings and Bulk Import dialogs parent their OK/Cancel buttons correctly so they actually appear on GTK.
+
+**Plugin**
+- Both toolbar actions launch the same window; BOM tab is filled when a board is open.
+- `import wx` in KiCad's Python is optional: if it is missing, the plugin still launches manager.py from the venv and logs instead of crashing.
+
+**Internals**
+- Import worker is a background thread with callbacks (`wx.CallAfter`), not Qt.
+- CLI import no longer needs a Qt event loop.
+- GUI-free helpers for cache, part state, and schematic/PCB patches, with unit tests.
+
+**Dependencies**
+- `wxPython>=4.2.0` replaces PySide6.
+
+
 ## v2.0 - KiCad Library Manager
+
+### v2.2.1 - Library Upgrades and Bug Fixes
+
+**Dependencies**
+- Upgraded and pinned all python libraries to their latest versions (requests, lxml, PySide6, beautifulsoup4, pytest).
+
+**Bugs**
+- Fixed a bug in the external `easyeda2kicad` exporter where multi-unit symbols would fail to integrate sub-units if the component name contained spaces, slashes, or colons (due to name sanitization mismatch).
+- Fixed a bug in `easyeda2kicad` symbol extraction where single-unit symbols used the visual bounding box center as their origin instead of the designed head coordinate, resulting in asymmetric graphic components (like capacitors and inductors) having off-grid pins or offset graphics on the Y-axis.
+
+
+### v2.2.0 - More Stable, and Tests
+
+**Bugs**
+- Some more regex issues surfaced, so a complete refactor
+
+**Tests**
+- Over 70 unit tests created.  No more regressions
+- During tests, a couple other issues were found, it was worth it
+
+So no new features, but a better product, and a better future!
+
+
+### v2.1.0 - External Backend
+
+**BOM Manager Improvements**
+- Part state tracking (valid, symbol, footprint, step, pdf, jlc)
+- Improved cell formatting and tooltips for part state
+
+**Using easyeda2kicad.py backend**
+- Not sure how I never knew this existed, but I do now!
+- Moved from my heavily modified older libraries for handling EasyEDA Conversions, to the easyeda2kicad.py backend.
+- Utilise the actual python project, despite not calling it directly.  
+  - This means that the version used is pinned in requirements.txt, as updates may break compatibility.  
+- This is a large refactor, and I have encountered a lot of bugs, that I have slowly fixed. 
+  - So v2.1.0 is marked as pre-release only, and will not ever be released as stable.
+  - Once I have completed enough hours using all functions, without issue, will I make it stable. 
+  - Fixes will be released with version numbers for those wanting to stay on this version. 
+- Currently I have noticed little difference between 2.0 and 2.1 in terms of functionality or stability, so while this is a major refactor, it is not a major change.
+
 
 ### v2.0.0 - New Name, KiCad Library Manager - Now with BOM Manager
 

@@ -1,0 +1,291 @@
+{
+  "C25804": {
+    "success": true,
+    "data": {
+      "model": "0603WAF1002T5E",
+      "brand": "UNI-ROYAL(Uniroyal Elec)",
+      "categoryName": "",
+      "package": "0603",
+      "description": "-55℃~+155℃ 100mW 10kΩ 75V Thick Film Resistor ±1% ±100ppm/℃ 0603 Chip Resistor - Surface Mount ROHS",
+      "parameters": [
+        {
+          "name": "Resistance",
+          "value": "10kΩ"
+        },
+        {
+          "name": "Operating Temperature",
+          "value": "-55℃~+155℃"
+        },
+        {
+          "name": "Power(Watts)",
+          "value": "100mW"
+        },
+        {
+          "name": "Type",
+          "value": "Thick Film Resistor"
+        },
+        {
+          "name": "Voltage-Supply(Max)",
+          "value": "75V"
+        },
+        {
+          "name": "Tolerance",
+          "value": "±1%"
+        },
+        {
+          "name": "Temperature Coefficient",
+          "value": "±100ppm/℃"
+        }
+      ],
+      "stock": 0
+    },
+    "pricing": [
+      {
+        "price": 0.0018
+      }
+    ],
+    "inventory": {
+      "stock": 0
+    }
+  },
+  "C49678": {
+    "success": true,
+    "data": {
+      "model": "CC0805KRX7R9BB104",
+      "brand": "YAGEO",
+      "categoryName": "",
+      "package": "0805",
+      "description": "100nF 50V X7R ±10% 0805 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+      "parameters": [
+        {
+          "name": "Voltage Rating",
+          "value": "50V"
+        },
+        {
+          "name": "Tolerance",
+          "value": "±10%"
+        },
+        {
+          "name": "Capacitance",
+          "value": "100nF"
+        },
+        {
+          "name": "Temperature Coefficient",
+          "value": "X7R"
+        }
+      ],
+      "stock": 0
+    },
+    "pricing": [
+      {
+        "price": 0.0169
+      }
+    ],
+    "inventory": {
+      "stock": 0
+    }
+  },
+  "C8734": {
+    "success": true,
+    "data": {
+      "model": "STM32F103C8T6",
+      "brand": "STMicroelectronics",
+      "categoryName": "",
+      "package": "LQFP-48(7x7)",
+      "description": "-40℃~+85℃ 12bit 20KB 2V~3.6V 32 Bit 37 64KB 72MHz ARM Cortex-M3 Built-in FLASH LQFP-48(7x7) Microcontrollers (MCU/MPU/SOC) ROHS",
+      "parameters": [
+        {
+          "name": "EEPROM",
+          "value": "-"
+        },
+        {
+          "name": "Operating Temperature",
+          "value": "-40℃~+85℃"
+        },
+        {
+          "name": "CPU Maximum Speed",
+          "value": "72MHz"
+        },
+        {
+          "name": "Program Memory Type",
+          "value": "FLASH"
+        },
+        {
+          "name": "Program Storage Size",
+          "value": "64KB"
+        },
+        {
+          "name": "Voltage - Supply",
+          "value": "2V~3.6V"
+        },
+        {
+          "name": "Core Size",
+          "value": "32 Bit"
+        },
+        {
+          "name": "RAM Size",
+          "value": "20KB"
+        },
+        {
+          "name": "CPU Core",
+          "value": "ARM Cortex-M3"
+        },
+        {
+          "name": "Number of I/O",
+          "value": "37"
+        },
+        {
+          "name": "ADC (Bit)",
+          "value": "12bit"
+        },
+        {
+          "name": "Oscillator Type",
+          "value": "Built-in"
+        }
+      ],
+      "stock": 0
+    },
+    "pricing": [
+      {
+        "price": 1.465
+      }
+    ],
+    "inventory": {
+      "stock": 0
+    }
+  },
+  "C165948": {
+    "success": true,
+    "data": {
+      "model": "TYPE-C-31-M-12",
+      "brand": "Korean Hroparts Elec",
+      "categoryName": "",
+      "package": "SMD",
+      "description": "-30℃~+80℃ 1 10,000 cycles 16P 20V 5A 7.35mm Female Surface Mount, Right Angle Type-C SMD USB Connectors ROHS",
+      "parameters": [
+        {
+          "name": "Operating Temperature",
+          "value": "-30℃~+80℃"
+        },
+        {
+          "name": "Number of Ports",
+          "value": "1"
+        },
+        {
+          "name": "Length",
+          "value": "7.35mm"
+        },
+        {
+          "name": "Current Rating-Power",
+          "value": "5A"
+        },
+        {
+          "name": "Voltage Rating",
+          "value": "20V"
+        },
+        {
+          "name": "Connector Type",
+          "value": "Type-C"
+        },
+        {
+          "name": "Number of Contacts",
+          "value": "16P"
+        },
+        {
+          "name": "Gender",
+          "value": "Female"
+        },
+        {
+          "name": "Connect-Disconnect Life",
+          "value": "10,000 cycles"
+        },
+        {
+          "name": "Mounting Type",
+          "value": "Surface Mount, Right Angle"
+        },
+        {
+          "name": "Protocol Standard",
+          "value": "-"
+        }
+      ],
+      "stock": 0
+    },
+    "pricing": [
+      {
+        "price": 0.1837
+      }
+    ],
+    "inventory": {
+      "stock": 0
+    }
+  },
+  "C51118": {
+    "success": true,
+    "data": {
+      "model": "AP2112K-3.3TRG1",
+      "brand": "Diodes Incorporated",
+      "categoryName": "",
+      "package": "SOT-25-5",
+      "description": "-40℃~+85℃@(Ta) 1 250mV@(600mA) 3.3V 50uVrms 55uA 600mA 65dB@(1kHz) 6V Fixed Over Current Protection、Thermal Shutdown、Enable control Positive SOT-25-5 Voltage Regulators - Linear, Low Drop Out (LDO) Regulators ROHS",
+      "parameters": [
+        {
+          "name": "Power Supply Rejection Ratio (PSRR)",
+          "value": "65dB@(1kHz)"
+        },
+        {
+          "name": "Operating Temperature",
+          "value": "-40℃~+85℃@(Ta)"
+        },
+        {
+          "name": "standby current",
+          "value": "55uA"
+        },
+        {
+          "name": "Noise",
+          "value": "50uVrms"
+        },
+        {
+          "name": "Voltage - Supply",
+          "value": "6V"
+        },
+        {
+          "name": "Output Type",
+          "value": "Fixed"
+        },
+        {
+          "name": "Output Current",
+          "value": "600mA"
+        },
+        {
+          "name": "Output Configuration",
+          "value": "Positive"
+        },
+        {
+          "name": "Features",
+          "value": "Over Current Protection、Short Circuit Protection、Thermal shutdown、Enable control、Output discharge"
+        },
+        {
+          "name": "Voltage Dropout",
+          "value": "250mV@(600mA)"
+        },
+        {
+          "name": "Output Voltage",
+          "value": "3.3V"
+        },
+        {
+          "name": "Number of Outputs",
+          "value": "1"
+        }
+      ],
+      "stock": 0
+    },
+    "pricing": [
+      {
+        "price": 0.1559
+      }
+    ],
+    "inventory": {
+      "stock": 0
+    }
+  }
+}

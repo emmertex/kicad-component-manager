@@ -56,17 +56,16 @@ def main():
 
         sys.exit(run_cli(args))
 
-    # GUI mode.
-    from PySide6.QtWidgets import QApplication
+    # GUI mode — single wxPython window (Library + BOM notebook).
+    import wx
 
-    from gui.widgets import MainWindow
+    from gui.widgets import MainFrame
 
     logging.basicConfig(level=logging.INFO)
-    app = QApplication(sys.argv)
-    win = MainWindow(bom_file=args.bom)
-    if not args.bom:
-        win.show()
-    sys.exit(app.exec())
+    app = wx.App(False)
+    win = MainFrame(bom_file=args.bom)
+    win.Show()
+    app.MainLoop()
 
 
 if __name__ == "__main__":
