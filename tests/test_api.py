@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from lib.api import JLCPCBAPIWrapper, LCSCAPIClient, fetch_component_data
+from lib.jlc import jlcpcb_client
 from tests.conftest import ALL_LCSC_PARTS, FIXTURES
 from tests.generation import load_json, parse_lcsc_from_fixture
 
@@ -69,3 +70,17 @@ def test_jlc_cart_fixture_has_real_data():
     assert data["componentCode"] == "C25804"
     assert data["componentModelEn"] == "0603WAF1002T5E"
     assert data["attributes"]
+
+
+@pytest.mark.parametrize("cleared_key", ["", None])
+def test_jlc_client_drops_authorization_when_key_cleared(monkeypatch, cleared_key):
+    monkeypatch.setattr(jlcpcb_client, "_jlcpcb_client", None)
+    authenticated = jlcpcb_client.get_jlcpcb_client("test-key")
+    assert authenticated.session.headers["Authorization"] == "Bearer test-key"
+    assert jlcpcb_client.get_jlcpcb_client("test-key") is authenticated
+
+    anonymous = jlcpcb_client.get_jlcpcb_client(cleared_key)
+    assert anonymous is not authenticated
+    assert "Authorization" not in anonymous.session.headers
+    assert jlcpcb_client.get_jlcpcb_client("") is anonymous
+    assert jlcpcb_client.get_jlcpcb_client(None) is anonymous

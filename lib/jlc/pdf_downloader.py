@@ -1,15 +1,21 @@
+import contextlib
+import ipaddress
 import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 
 import requests
 
+from ..fsutil import atomic_write_bytes
 from . import helper
+
+logger = logging.getLogger(__name__)
 
 
 def _fetch_external_pdf(url, referer, timeout=60):
@@ -28,64 +34,128 @@ def _fetch_external_pdf(url, referer, timeout=60):
     return None
 
 
+def _is_public_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _validate_public_url(url: str) -> tuple[str, int, str] | None:
+    """Return (host, port, ip) if url is https and resolves to a public IP.
+
+    Blocks loopback, RFC1918, link-local (incl. the 169.254.169.254 cloud
+    metadata address), reserved, multicast and unspecified addresses. The
+    pinned IP is passed to curl via --resolve so DNS cannot rebind between
+    validation and connect.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        logger.warning(f"Refusing non-https PDF URL: {url}")
+        return None
+    host = parts.hostname
+    port = parts.port or 443
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, OSError):
+        logger.warning(f"Cannot resolve host for PDF URL: {host}")
+        return None
+    ips = list(dict.fromkeys(info[4][0] for info in infos))
+    public = [ip for ip in ips if _is_public_ip(ip)]
+    if not public:
+        logger.warning(f"Refusing non-public address for PDF URL: {url}")
+        return None
+    v4 = next((ip for ip in public if ":" not in ip), public[0])
+    return host, port, v4
+
+
 def _curl_get(url, referer, timeout=60):
-    """Fetch URL via curl subprocess and return content bytes, or None on error."""
+    """Fetch URL via curl subprocess and return content bytes, or None on error.
+
+    https-only; every hop (including manual redirects) must resolve to a public
+    IP, which is pinned with --resolve to prevent DNS-rebinding SSRF.
+    """
     if not shutil.which("curl"):
-        logging.warning("curl not found; cannot download external PDF")
+        logger.warning("curl not found; cannot download external PDF")
         return None
 
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
-    os.close(tmp_fd)
-    try:
-        cmd = [
-            "curl",
-            "--silent",
-            "--location",
-            "--http2",
-            "--max-time",
-            str(timeout),
-            "--output",
-            tmp_path,
-            "--header",
-            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "--header",
-            "Accept-Language: en-AU,en;q=0.9",
-            "--header",
-            "Accept-Encoding: gzip, deflate, br, zstd",
-            "--header",
-            f"Referer: {referer}",
-            "--header",
-            "Sec-Fetch-Dest: document",
-            "--header",
-            "Sec-Fetch-Mode: navigate",
-            "--header",
-            "Sec-Fetch-Site: cross-site",
-            "--header",
-            "Upgrade-Insecure-Requests: 1",
-            "--user-agent",
-            "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0",
-            "--write-out",
-            "%{http_code}",
-            url,
-        ]
-        logging.info(f"Attempting external PDF download: {url}")
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout + 5
-        )
-        http_code = result.stdout.strip()
-        if http_code == "200":
-            with open(tmp_path, "rb") as f:
-                return f.read()
-        logging.warning(f"External PDF fetch returned HTTP {http_code} for {url}")
-    except subprocess.TimeoutExpired:
-        logging.warning(f"curl timed out for {url}")
-    except Exception as e:
-        logging.warning(f"curl error for {url}: {e}")
-    finally:
+    current = url
+    for _ in range(5):
+        validated = _validate_public_url(current)
+        if validated is None:
+            return None
+        host, port, ip = validated
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(tmp_fd)
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            cmd = [
+                "curl",
+                "--silent",
+                "--http2",
+                "--max-time",
+                str(timeout),
+                "--resolve",
+                f"{host}:{port}:{ip}",
+                "--output",
+                tmp_path,
+                "--header",
+                "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "--header",
+                "Accept-Language: en-AU,en;q=0.9",
+                "--header",
+                "Accept-Encoding: gzip, deflate, br, zstd",
+                "--header",
+                f"Referer: {referer}",
+                "--header",
+                "Sec-Fetch-Dest: document",
+                "--header",
+                "Sec-Fetch-Mode: navigate",
+                "--header",
+                "Sec-Fetch-Site: cross-site",
+                "--header",
+                "Upgrade-Insecure-Requests: 1",
+                "--user-agent",
+                "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0",
+                "--write-out",
+                "%{http_code}\\n%{redirect_url}",
+                current,
+            ]
+            logger.info(f"Attempting external PDF download: {current}")
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout + 5
+            )
+            lines = [ln.strip() for ln in result.stdout.splitlines()]
+            http_code = lines[0] if lines else ""
+            redirect_url = lines[1] if len(lines) > 1 else ""
+            if http_code == "200":
+                with open(tmp_path, "rb") as f:
+                    return f.read()
+            if http_code.startswith("3") and redirect_url:
+                current = urljoin(current, redirect_url)
+                continue
+            logger.warning(
+                f"External PDF fetch returned HTTP {http_code} for {current}"
+            )
+            return None
+        except subprocess.TimeoutExpired:
+            logger.warning(f"curl timed out for {current}")
+            return None
+        except Exception as e:
+            logger.warning(f"curl error for {current}: {e}")
+            return None
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+    logger.warning(f"Too many redirects fetching PDF from {url}")
     return None
 
 
@@ -123,7 +193,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
         # First, try to get the product page to check for manufacturer datasheet links
         product_url = f"https://www.lcsc.com/product-detail/{component_id}.html"
 
-        logging.info(f"Fetching product page from {product_url}")
+        logger.info(f"Fetching product page from {product_url}")
         product_response = session.get(
             product_url,
             headers=helper.LCSC_HEADERS,
@@ -132,7 +202,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
 
         if product_response.status_code != 200:
             error_msg = f"Failed to fetch product page. HTTP status: {product_response.status_code}"
-            logging.warning(f"{error_msg} for component {component_id}")
+            logger.warning(f"{error_msg} for component {component_id}")
             return False, "", error_msg
 
         # Look for manufacturer datasheet link in the product page
@@ -147,21 +217,21 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
             product_content,
             re.IGNORECASE,
         )
-        logging.info(f"Found {len(all_pdf_links)} PDF links: {all_pdf_links}")
+        logger.info(f"Found {len(all_pdf_links)} PDF links: {all_pdf_links}")
 
         if (
             datasheet_match
             and "lcsc.com" not in urlparse(datasheet_match.group(1)).netloc
         ):
             pdf_url = datasheet_match.group(1)
-            logging.info(f"Found datasheet URL: {pdf_url}")
+            logger.info(f"Found datasheet URL: {pdf_url}")
             if "lcsc.com" not in urlparse(pdf_url).netloc:
                 pdf_content = _fetch_external_pdf(pdf_url, referer=product_url)
             else:
                 pdf_headers = dict(helper.LCSC_HEADERS)
                 pdf_headers["Accept"] = "application/pdf,application/octet-stream,*/*"
                 pdf_headers["Referer"] = product_url
-                logging.info(f"Downloading PDF from LCSC: {pdf_url}")
+                logger.info(f"Downloading PDF from LCSC: {pdf_url}")
                 r = session.get(
                     pdf_url, headers=pdf_headers, timeout=30, allow_redirects=True
                 )
@@ -173,11 +243,11 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
 
         else:
             # Try the LCSC iframe approach - visit the datasheet page first to get cookies
-            logging.info(
+            logger.info(
                 f"No manufacturer datasheet found for {component_id}, trying LCSC iframe"
             )
             lcsc_url = f"https://www.lcsc.com/datasheet/{component_id}.pdf"
-            logging.info(f"Fetching LCSC datasheet page: {lcsc_url}")
+            logger.info(f"Fetching LCSC datasheet page: {lcsc_url}")
 
             # Visit the product detail page first to establish cookies, then fetch datasheet
             session.get(product_url, headers=helper.LCSC_HEADERS, timeout=30)
@@ -188,7 +258,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
 
             if lcsc_response.status_code != 200:
                 error_msg = f"Failed to fetch LCSC datasheet page. HTTP status: {lcsc_response.status_code}"
-                logging.warning(f"{error_msg} for component {component_id}")
+                logger.warning(f"{error_msg} for component {component_id}")
                 return False, "", error_msg
 
             # Check if the response is already a PDF (some endpoints serve PDF directly)
@@ -196,11 +266,10 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
             if "pdf" in content_type.lower() or lcsc_response.content.startswith(
                 b"%PDF"
             ):
-                logging.info(f"LCSC datasheet page returned PDF directly")
+                logger.info("LCSC datasheet page returned PDF directly")
                 pdf_file_path = pdf_path / f"{component_id}.pdf"
-                with open(pdf_file_path, "wb") as f:
-                    f.write(lcsc_response.content)
-                logging.info(f"PDF downloaded successfully: {pdf_file_path}")
+                atomic_write_bytes(pdf_file_path, lcsc_response.content)
+                logger.info(f"PDF downloaded successfully: {pdf_file_path}")
                 return True, str(pdf_file_path), ""
 
             # Extract iframe URL from HTML content
@@ -216,7 +285,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
                 lcsc_content,
                 re.IGNORECASE,
             )
-            logging.info(f"Found {len(all_iframes)} iframe tags: {all_iframes}")
+            logger.info(f"Found {len(all_iframes)} iframe tags: {all_iframes}")
 
             if not iframe_match:
                 # Try to find PDF URL in other patterns (e.g., data attributes, JS)
@@ -232,7 +301,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
                         break
                 else:
                     error_msg = f"Could not find iframe with PDF URL in LCSC page for component {component_id}"
-                    logging.warning(error_msg)
+                    logger.warning(error_msg)
                     return False, "", error_msg
             else:
                 pdf_url = iframe_match.group(1).rstrip("\\")
@@ -243,7 +312,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
             elif not pdf_url.startswith("http"):
                 pdf_url = f"https://www.lcsc.com/{pdf_url}"
 
-            logging.info(f"Found PDF URL in LCSC iframe: {pdf_url}")
+            logger.info(f"Found PDF URL in LCSC iframe: {pdf_url}")
 
             # Use external downloader for off-LCSC URLs, LCSC session for lcsc.com URLs
             if "lcsc.com" not in urlparse(pdf_url).netloc:
@@ -252,7 +321,7 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
                 pdf_headers = dict(helper.LCSC_HEADERS)
                 pdf_headers["Accept"] = "application/pdf,application/octet-stream,*/*"
                 pdf_headers["Referer"] = lcsc_url
-                logging.info(f"Downloading PDF from LCSC: {pdf_url}")
+                logger.info(f"Downloading PDF from LCSC: {pdf_url}")
                 r = session.get(
                     pdf_url, headers=pdf_headers, timeout=30, allow_redirects=True
                 )
@@ -265,23 +334,22 @@ def download_pdf(component_id, output_dir, pdf_dir="pdf"):
         if pdf_content is not None:
             # Save the PDF file
             pdf_file_path = pdf_path / f"{component_id}.pdf"
-            with open(pdf_file_path, "wb") as f:
-                f.write(pdf_content)
+            atomic_write_bytes(pdf_file_path, pdf_content)
 
-            logging.info(f"PDF downloaded successfully: {pdf_file_path}")
+            logger.info(f"PDF downloaded successfully: {pdf_file_path}")
             return True, str(pdf_file_path), ""
         else:
             error_msg = f"Failed to download PDF for {component_id}"
-            logging.warning(error_msg)
+            logger.warning(error_msg)
             return False, "", error_msg
 
     except requests.exceptions.RequestException as e:
         error_msg = f"Network error downloading PDF: {str(e)}"
-        logging.warning(f"{error_msg} for component {component_id}")
+        logger.warning(f"{error_msg} for component {component_id}")
         return False, "", error_msg
     except Exception as e:
         error_msg = f"Unexpected error downloading PDF: {str(e)}"
-        logging.error(f"{error_msg} for component {component_id}")
+        logger.error(f"{error_msg} for component {component_id}")
         return False, "", error_msg
 
 

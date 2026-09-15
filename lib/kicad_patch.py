@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from lib.helpers import _find_block_end
-from lib.kicad_escape import KICAD_QUOTED_VALUE_RE
+from lib.kicad_escape import KICAD_QUOTED_VALUE_RE, escape_kicad_string
 
 
 def patch_pcb_footprint_refs(content: str, refs: list, new_fp: str) -> str:
@@ -30,7 +30,7 @@ def patch_pcb_footprint_refs(content: str, refs: list, new_fp: str) -> str:
             last_m = fp_matches[-1]
             old_str = last_m.group(0)
             kw = "footprint" if old_str.startswith("(footprint") else "module"
-            new_str = f'({kw} "{new_fp}"'
+            new_str = f'({kw} "{escape_kicad_string(new_fp)}"'
             content = (
                 content[: last_m.start()]
                 + new_str
@@ -69,13 +69,14 @@ def patch_sch_footprint_refs(content: str, refs: list, new_fp: str) -> str:
         r'(\(property\s+"Footprint"\s+")' + KICAD_QUOTED_VALUE_RE + r'(")'
     )
 
+    escaped_fp = escape_kicad_string(new_fp)
     patches = []
     for start, end in sch_symbol_blocks(content):
         block = content[start : end + 1]
         m = ref_check.search(block)
         if m and m.group(1) in ref_set:
             new_block, count = fp_pat.subn(
-                lambda fm: fm.group(1) + new_fp + fm.group(2), block, count=1
+                lambda fm: fm.group(1) + escaped_fp + fm.group(2), block, count=1
             )
             if count:
                 patches.append((start, end, new_block))
@@ -93,13 +94,14 @@ def patch_sch_lib_id_refs(content: str, refs: list, new_lib_id: str) -> str:
     )
     lib_id_pat = re.compile(r'(\(lib_id\s+")' + KICAD_QUOTED_VALUE_RE + r'(")')
 
+    escaped_lib_id = escape_kicad_string(new_lib_id)
     patches = []
     for start, end in sch_symbol_blocks(content):
         block = content[start : end + 1]
         m = ref_check.search(block)
         if m and m.group(1) in ref_set:
             new_block, count = lib_id_pat.subn(
-                lambda fm: fm.group(1) + new_lib_id + fm.group(2), block, count=1
+                lambda fm: fm.group(1) + escaped_lib_id + fm.group(2), block, count=1
             )
             if count:
                 patches.append((start, end, new_block))

@@ -20,6 +20,8 @@ from lib.categories import resolve_category
 from lib.helpers import (
     PDF_MIN_BYTES,
     _check_existing,
+    _safe_component,
+    _update_symbol_property,
     _update_symbol_datasheet,
     sym_lib_targets,
     upsert_symbol,
@@ -81,6 +83,9 @@ class Worker:
     def scrape(self, pid):
         self._q.put(("scrape", pid))
 
+    def update_property(self, pid, prop, val, output_dir):
+        self._q.put(("prop", pid, prop, val, output_dir))
+
     def stop(self):
         self._q.put(None)
 
@@ -96,6 +101,8 @@ class Worker:
                     self._do_retry(task[1], task[2], task[3])
                 elif task[0] == "scrape":
                     self._do_scrape(task[1])
+                elif task[0] == "prop":
+                    self._do_prop(task[1], task[2], task[3], task[4])
             except Exception:
                 logging.error(f"Worker task failed: {traceback.format_exc()}")
 
@@ -127,7 +134,9 @@ class Worker:
 
         if cfg["dl_pdf"] and (overwrite or not c.get("pdf_ok")):
             self._do_pdf(pid, c, cfg)
-        elif not cfg["dl_pdf"]:
+        else:
+            # PDF step skipped (disabled, or already in library): still emit a
+            # done event so CLI callers waiting on the pdf step can finish.
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
             self._emit(self.on_step_done, pid, "pdf", True, {"skipped": True, "url": url})
 
@@ -235,7 +244,11 @@ class Worker:
             pretty_dir = Path(cfg["output_dir"]) / "footprint.pretty"
             pretty_dir.mkdir(parents=True, exist_ok=True)
 
-            fp_name = ee_footprint.info.name
+            fp_name = _safe_component(ee_footprint.info.name)
+            if fp_name is None:
+                raise RuntimeError(
+                    f"Unsafe footprint name from CAD data: {ee_footprint.info.name!r}"
+                )
             mod_path = pretty_dir / f"{fp_name}.kicad_mod"
 
             # 3D model path. Must be an absolute / env-var path so the model
@@ -261,6 +274,12 @@ class Worker:
                 log(f"Exporting 3D model for {pid}...")
                 model_3d = ee_footprint.model_3d
                 if model_3d:
+                    safe_model = _safe_component(model_3d.name)
+                    if safe_model is None:
+                        raise RuntimeError(
+                            f"Unsafe 3D model name from CAD data: {model_3d.name!r}"
+                        )
+                    model_3d.name = safe_model
                     # We need to fetch the raw data for exporter
                     model_3d.raw_obj = api.get_raw_3d_model_obj(model_3d.uuid)
                     model_3d.step = api.get_step_3d_model(model_3d.uuid)
@@ -411,15 +430,24 @@ class Worker:
             sym_content = exporter.export(footprint_lib_name=fp_lib)
 
             log(f"Saving symbol to {', '.join(n + '.kicad_sym' for n in lib_names)}...")
+            failed = []
             for lib_name in lib_names:
                 lib_path = sym_dir / f"{lib_name}.kicad_sym"
                 try:
                     upsert_symbol(str(lib_path), sym_content)
                 except Exception as we:
                     log(f"Warning: could not write symbol to {lib_path.name}: {we}")
+                    failed.append(f"{lib_path.name}: {we}")
+
+            if len(failed) == len(lib_names):
+                err = f"Symbol not written to any library ({'; '.join(failed)})"
+                log(err)
+                self._emit(self.on_step_done, pid, "symbol", False, {"error": err})
+                return
 
             # Extract attributes for the GUI
-            self._emit(self.on_step_done, 
+            self._emit(
+                self.on_step_done,
                 pid,
                 "symbol",
                 True,
@@ -446,7 +474,7 @@ class Worker:
     def _do_pdf(self, pid, c, cfg):
         h = _Cap(self._logfn(pid))
         self._emit(self.on_step_started, pid, "pdf")
-        logging.getLogger().addHandler(h)
+        logging.getLogger("lib.jlc.pdf_downloader").addHandler(h)
         try:
             ok, path, err = pdf_downloader.download_pdf(pid, cfg["output_dir"])
             if ok and path:
@@ -469,7 +497,7 @@ class Worker:
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
             self._emit(self.on_step_done, pid, "pdf", False, {"url": url, "error": str(e)})
         finally:
-            logging.getLogger().removeHandler(h)
+            logging.getLogger("lib.jlc.pdf_downloader").removeHandler(h)
 
     def _do_jlc(self, pid, c, cfg):
         self._emit(self.on_step_started, pid, "jlc")
@@ -479,12 +507,14 @@ class Worker:
             info = fetch_component_data(pid, cfg.get("jlcpcb_api_key"))
             if not info:
                 log("Warning: No metadata found on LCSC/JLCPCB (using minimal data)")
-                info = {}
-            c["comp_info"] = {**(c.get("comp_info") or {}), **info}
-            if info:
-                log(
-                    f"API OK — stock={info.get('stock', '?')}  price={info.get('price', '?')}"
+                self._emit(
+                    self.on_step_done, pid, "jlc", False, {"error": "No metadata found"}
                 )
+                return
+            c["comp_info"] = {**(c.get("comp_info") or {}), **info}
+            log(
+                f"API OK — stock={info.get('stock', '?')}  price={info.get('price', '?')}"
+            )
 
             cat = resolve_category(info.get("category", ""))
             self._emit(self.on_step_done, 
@@ -502,12 +532,8 @@ class Worker:
                 },
             )
         except Exception as e:
-            log(f"JLC fetch warning: {e}")
-            # Still mark as "done" (but maybe not success?)
-            # Actually, let's keep it as SUCCESS if we want to continue,
-            # or FAILED if we want to show a red cross.
-            # Given it's a fallback, let's show SUCCESS but log the warning.
-            self._emit(self.on_step_done, pid, "jlc", True, {"error": str(e)})
+            log(f"JLC fetch failed: {e}")
+            self._emit(self.on_step_done, pid, "jlc", False, {"error": str(e)})
 
     def _do_scrape(self, pid):
         self._emit(self.on_log_line, pid, f"Scraping LCSC data for {pid}…")
@@ -517,6 +543,10 @@ class Worker:
         else:
             self._emit(self.on_log_line, pid, "Scrape returned no data")
         self._emit(self.on_scrape_done, pid, data)
+
+    def _do_prop(self, pid, prop, val, output_dir):
+        if val is not None and output_dir:
+            _update_symbol_property(pid, output_dir, prop, val)
 
     def _logfn(self, pid):
         def _l(msg):

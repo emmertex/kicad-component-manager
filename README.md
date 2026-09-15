@@ -68,6 +68,9 @@ Clicking a row shows the download log for that part in the panel below the table
 
 ## Installation
 
+Use **Python 3.13 or newer** for the component manager. Ensure the `python` or
+`python3` command used below points to that version before creating the virtual environment.
+
 ### Standalone (no KiCad integration)
 
 **BOM Manager will not work** without KiCad integration.
@@ -89,7 +92,9 @@ python manager.py
 
 ---
 
-## KiCad Plugin Installation (Reccomended)
+## KiCad Plugin Installation (Recommended)
+
+Use **Python 3.13 or newer** for the component manager's interpreter or virtual environment.
 
 ### Option 1 — Install from File (Recommended for most users (for now))
 
@@ -136,7 +141,7 @@ Thank you for your contributions!
 
 ## Changelog
 
-See [CHANGELOG.md](changelog.md) for an overview of release notes.
+See [CHANGELOG.md](CHANGELOG.md) for an overview of release notes.
 
 ---
 

@@ -151,6 +151,7 @@ _jlcpcb_client: Optional[JLCPCBAPIClient] = None
 def get_jlcpcb_client(api_key: Optional[str] = None) -> JLCPCBAPIClient:
     """Get or create the global JLCPCB API client."""
     global _jlcpcb_client
-    if _jlcpcb_client is None or (api_key and _jlcpcb_client.api_key != api_key):
+    api_key = api_key or None
+    if _jlcpcb_client is None or _jlcpcb_client.api_key != api_key:
         _jlcpcb_client = JLCPCBAPIClient(api_key=api_key)
     return _jlcpcb_client

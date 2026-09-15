@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import re
+import shutil
 import webbrowser
 from pathlib import Path
 
 import wx
 import wx.lib.scrolledpanel as scrolled
 
-from gui.cache import CACHE_FILE, CACHE_VERSION, MAX_RECENT, load_cache, migrate_col_visible, save_cache, bump_recent
+from gui.cache import CACHE_FILE, CACHE_VERSION, MAX_RECENT, load_cache, migrate_api_key, migrate_col_visible, save_cache, save_secret, bump_recent
 from gui.models import (
     ATTR_COL,
     ATTR_PROP,
@@ -34,6 +36,7 @@ from gui.models import (
 from gui.worker import Worker
 from lib.bulk import normalize_pid, parse_parts
 from lib.categories import FINAL_CATEGORIES
+from lib.fsutil import atomic_write_text
 from lib.helpers import (
     PDF_MIN_BYTES,
     _check_existing,
@@ -41,7 +44,6 @@ from lib.helpers import (
     _find_sym_file,
     _parse_sym_file,
     _update_sym_lib_table,
-    _update_symbol_property,
     ensure_libraries,
     list_sym_files,
     sync_libraries,
@@ -505,7 +507,7 @@ class MainFrame(wx.Frame):
         self._lib_mode = d.get("lib_mode", "organised")
         if self._lib_mode == "both":
             self._lib_mode = "both_organised"
-        self._jlcpcb_api_key = d.get("jlcpcb_api_key", "")
+        self._jlcpcb_api_key = migrate_api_key(d)
         self._allow_edit_category = d.get("allow_edit_category", False)
         self._col_visible = migrate_col_visible(d.get("col_visible", []), version, len(COL_NAMES))
 
@@ -521,10 +523,10 @@ class MainFrame(wx.Frame):
                     "col_visible": self._col_visible,
                     "lib_prefix": self._lib_prefix,
                     "lib_mode": self._lib_mode,
-                    "jlcpcb_api_key": self._jlcpcb_api_key,
                     "allow_edit_category": self._allow_edit_category,
                 }
             )
+            save_secret({"jlcpcb_api_key": self._jlcpcb_api_key})
         except Exception:
             pass
 
@@ -777,7 +779,7 @@ class MainFrame(wx.Frame):
                 self._set_text_cell(r, col, val)
         prop = ATTR_PROP.get(attr)
         if prop and self._output_dir:
-            _update_symbol_property(pid, self._output_dir, prop, val)
+            self._worker.update_property(pid, prop, val, self._output_dir)
 
     def _load_library(self):
         cfg = self._check_cfg()
@@ -893,7 +895,7 @@ class MainFrame(wx.Frame):
                     ):
                         val = getattr(s, attr, "")
                         if val:
-                            _update_symbol_property(pid, self._output_dir, prop, val)
+                            self._worker.update_property(pid, prop, val, self._output_dir)
             if step == "symbol" and ok and self._output_dir:
                 _update_sym_lib_table(self._output_dir)
             if step == "valid" and ok:
@@ -927,7 +929,7 @@ class MainFrame(wx.Frame):
                 self._set_text_cell(r, col, val)
             prop = ATTR_PROP.get(attr)
             if prop and self._output_dir:
-                _update_symbol_property(pid, self._output_dir, prop, val)
+                self._worker.update_property(pid, prop, val, self._output_dir)
         if self._selected_pid() == pid:
             self._on_row(self._tbl.GetFirstSelected())
 
@@ -1197,11 +1199,22 @@ class MainFrame(wx.Frame):
         if not self._pcb_file or not Path(self._pcb_file).exists():
             _warn(self, "No PCB File", "PCB file not found. Reopen BOM from KiCad.")
             return
+        if not _ask(
+            self,
+            "Replace Footprint?",
+            f"Update footprint for {', '.join(refs)} to {new_fp}?\n\n"
+            "The PCB file and any affected schematic sheets will be modified.\n"
+            "A .bak backup of each changed file is created first.",
+        ):
+            return
         errors = []
         try:
             pcb_path = Path(self._pcb_file)
-            content = patch_pcb_footprint_refs(pcb_path.read_text(encoding="utf-8"), refs, new_fp)
-            pcb_path.write_text(content, encoding="utf-8")
+            original = pcb_path.read_text(encoding="utf-8")
+            content = patch_pcb_footprint_refs(original, refs, new_fp)
+            if content != original:
+                shutil.copy2(pcb_path, str(pcb_path) + ".bak")
+                atomic_write_text(pcb_path, content)
         except Exception as e:
             errors.append(f"PCB update failed: {e}")
         patched_sch = 0
@@ -1210,7 +1223,8 @@ class MainFrame(wx.Frame):
                 content = sch_path.read_text(encoding="utf-8")
                 new_content = patch_sch_footprint_refs(content, refs, new_fp)
                 if new_content != content:
-                    sch_path.write_text(new_content, encoding="utf-8")
+                    shutil.copy2(sch_path, str(sch_path) + ".bak")
+                    atomic_write_text(sch_path, new_content)
                     patched_sch += 1
             except Exception as e:
                 errors.append(f"Schematic update failed ({sch_path.name}): {e}")
@@ -1283,7 +1297,7 @@ class MainFrame(wx.Frame):
                 if new_content != content:
                     if sym_block:
                         new_content = ensure_sym_in_lib_symbols(new_content, sym_block)
-                    sch_path.write_text(new_content, encoding="utf-8")
+                    atomic_write_text(sch_path, new_content)
                     patched += 1
             except Exception as e:
                 errors.append(f"{sch_path.name}: {e}")
@@ -1300,13 +1314,14 @@ class MainFrame(wx.Frame):
                 return
             path = dlg.GetPath()
         try:
-            with open(path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(BOM_COL_NAMES)
-                for r in range(self._bom_tbl.GetItemCount()):
-                    writer.writerow(
-                        [self._bom_tbl.get_text(r, c) for c in range(self._bom_tbl.GetColumnCount())]
-                    )
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(BOM_COL_NAMES)
+            for r in range(self._bom_tbl.GetItemCount()):
+                writer.writerow(
+                    [self._bom_tbl.get_text(r, c) for c in range(self._bom_tbl.GetColumnCount())]
+                )
+            atomic_write_text(path, buf.getvalue())
             _info(self, "Exported", f"BOM exported to {path}")
         except Exception as e:
             _warn(self, "Export Error", f"Could not export CSV: {e}")

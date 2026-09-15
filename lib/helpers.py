@@ -5,6 +5,7 @@ from pathlib import Path
 
 from lib.categories import FINAL_CATEGORIES, resolve_category
 from lib.kicad_escape import KICAD_QUOTED_VALUE_RE, escape_kicad_string, unescape_kicad_string
+from lib.fsutil import atomic_write_text
 
 from .jlc import helper, pdf_downloader
 
@@ -215,7 +216,7 @@ def ensure_libraries(output_dir: str, prefix: str = "", mode: str = "organised")
         f = sym_dir / f"{name}.kicad_sym"
         if not f.exists():
             try:
-                f.write_text(EMPTY_SYM_LIB, encoding="utf-8")
+                atomic_write_text(f, EMPTY_SYM_LIB)
             except OSError as e:
                 logging.warning(f"Could not create library {f}: {e}")
     _update_sym_lib_table(output_dir)
@@ -336,7 +337,7 @@ def sync_libraries(output_dir: str, prefix: str = "") -> tuple:
         insert = "".join(b.rstrip("\n") + "\n" for b in missing)
         new_content = content[:close] + insert + content[close:]
         try:
-            lib_path.write_text(new_content, encoding="utf-8")
+            atomic_write_text(lib_path, new_content)
             copies += len(missing)
         except OSError as e:
             logging.warning(f"Could not write {lib_path}: {e}")
@@ -488,7 +489,7 @@ def _update_symbol_datasheet(pid: str, output_dir: str, new_ds: str) -> bool:
         if not found_block:
             return False
         if new_content != content:
-            sym_file.write_text(new_content, encoding="utf-8")
+            atomic_write_text(sym_file, new_content)
         return True
     except Exception as e:
         logging.warning(f"Failed to update symbol datasheet for {pid}: {e}")
@@ -601,7 +602,7 @@ def _update_symbol_property(
             logging.warning(f"Symbol block for {pid} not found in {sym_file}")
             return False
         if new_content != content:
-            sym_file.write_text(new_content, encoding="utf-8")
+            atomic_write_text(sym_file, new_content)
             logging.info(f"Updated {prop_names} for {pid} in {sym_file.name}")
         return True
     except Exception as e:
@@ -686,7 +687,7 @@ def upsert_symbol(lib_path: str, content: str) -> None:
     if not prefix.endswith("\n"):
         prefix += "\n"
     new = prefix + content.strip("\n") + "\n" + current[close:]
-    p.write_text(new, encoding="utf-8")
+    atomic_write_text(p, new)
 
 
 def _parse_sym_file(sym_file: Path):
@@ -743,10 +744,34 @@ def _update_sym_lib_table(output_dir: str) -> None:
         )
     lines.append(")")
     try:
-        table_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        atomic_write_text(table_path, "\n".join(lines) + "\n")
         logging.info(f"sym-lib-table: {len(sym_files)} lib(s) → {table_path}")
     except OSError as e:
         logging.warning(f"Could not write sym-lib-table: {e}")
+
+
+def _safe_component(name) -> "str | None":
+    """Return ``name`` if it is a single safe filesystem component, else None.
+
+    Rejects empty names, path separators (both flavours), NUL and the special
+    entries ``.``/``..`` so remote CAD data cannot escape its target directory.
+    """
+    if not isinstance(name, str) or not name:
+        return None
+    if any(ch in name for ch in ("/", "\\", "\x00")):
+        return None
+    if name in (".", ".."):
+        return None
+    return name
+
+
+def _is_under(root: Path, p: Path) -> bool:
+    """True if ``p`` resolves to a location inside ``root`` (symlinks followed)."""
+    try:
+        p.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _delete_from_lib(pid, output_dir):
@@ -754,47 +779,60 @@ def _delete_from_lib(pid, output_dir):
     errors = []
     fp_ref = ""
 
-    sym_file = _find_sym_file(pid, lib / "symbol")
-    if sym_file is not None:
-        content = sym_file.read_text(encoding="utf-8", errors="replace")
+    sym_dir = lib / "symbol"
+    if sym_dir.exists():
         marker = re.compile(
             r'\(property\s+"LCSC(?:\s+Part)?"\s+"' + re.escape(pid) + r'"', re.DOTALL
         )
-        lib_end = _sym_lib_close(content)
-        symbol_name = None
-        for name, bracket_pos, end_pos in _iter_top_level_symbols(content):
-            block = content[bracket_pos:end_pos]
-            if not marker.search(block):
+        for sym_file in sorted(sym_dir.glob("*.kicad_sym")):
+            try:
+                content = sym_file.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                errors.append(f"Symbol file: {e}")
                 continue
-            symbol_name = name
-            m_fp = _property_value_re("Footprint").search(block)
-            if m_fp:
-                fp_ref = m_fp.group(1)
-            break
-        if symbol_name:
-            new = _remove_top_symbol(content, symbol_name)
-            if new != content:
-                try:
-                    if not re.search(
-                        r'(?m)^[ \t]*\(symbol "', new[: _sym_lib_close(new)]
-                    ):
-                        sym_file.unlink(missing_ok=True)
-                    else:
-                        sym_file.write_text(new, encoding="utf-8")
-                except OSError as e:
-                    errors.append(f"Symbol file: {e}")
+            if not marker.search(content):
+                continue
+            symbol_name = None
+            for name, bracket_pos, end_pos in _iter_top_level_symbols(content):
+                block = content[bracket_pos:end_pos]
+                if not marker.search(block):
+                    continue
+                symbol_name = name
+                m_fp = _property_value_re("Footprint").search(block)
+                if m_fp and not fp_ref:
+                    fp_ref = m_fp.group(1)
+                break
+            if symbol_name:
+                new = _remove_top_symbol(content, symbol_name)
+                if new != content:
+                    try:
+                        if not re.search(
+                            r'(?m)^[ \t]*\(symbol "', new[: _sym_lib_close(new)]
+                        ):
+                            sym_file.unlink(missing_ok=True)
+                        else:
+                            atomic_write_text(sym_file, new)
+                    except OSError as e:
+                        errors.append(f"Symbol file: {e}")
 
     if fp_ref and ":" in fp_ref:
         ln, fn = fp_ref.split(":", 1)
-        for p in [
-            lib / f"{ln}.pretty" / f"{fn}.kicad_mod",
-            lib / ln / "packages3d" / f"{fn}.step",
-        ]:
-            if p.exists():
-                try:
-                    p.unlink()
-                except OSError as e:
-                    errors.append(str(e))
+        safe_ln, safe_fn = _safe_component(ln), _safe_component(fn)
+        if not safe_ln or not safe_fn:
+            errors.append(f"Skipping unsafe footprint ref {fp_ref!r}")
+        else:
+            for p in [
+                lib / f"{safe_ln}.pretty" / f"{safe_fn}.kicad_mod",
+                lib / safe_ln / "packages3d" / f"{safe_fn}.step",
+            ]:
+                if not _is_under(lib, p):
+                    errors.append(f"Skipping path outside library: {p}")
+                    continue
+                if p.exists():
+                    try:
+                        p.unlink()
+                    except OSError as e:
+                        errors.append(str(e))
 
     pdf = lib / "pdf" / f"{pid}.pdf"
     if pdf.exists():

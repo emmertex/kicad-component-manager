@@ -11,7 +11,7 @@ A KiCad plugin for downloading and managing LCSC components with integrated BOM 
 **Component Import**
 - Quick import: enter LCSC part number and press Enter
 - Bulk import: paste lists or load from file
-- CLI support: `python gui2.py -i C1234` or `-I parts.txt`
+- CLI support: `python manager.py -i C1234` or `-I parts.txt`
 - Automatic duplicate detection
 
 **Organization**

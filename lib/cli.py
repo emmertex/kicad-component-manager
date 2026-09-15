@@ -6,7 +6,7 @@ Runs the same import pipeline as the GUI Worker, with console logging.
 import sys
 import threading
 
-from gui.cache import bump_recent, load_cache, save_cache
+from gui.cache import bump_recent, load_cache, migrate_api_key, save_cache
 
 def _out(msg):
     print(msg, flush=True)
@@ -19,6 +19,7 @@ def _err(msg):
 def save_library_path(path):
     """Persist a library location to the shared cache (front of recent_dirs)."""
     d = load_cache()
+    migrate_api_key(d)
     d["recent_dirs"] = bump_recent(d.get("recent_dirs", []), path)
     save_cache(d)
 
@@ -30,13 +31,14 @@ def cfg_from_cache():
     output_dir = recent[0] if recent else ""
     if not output_dir:
         return None
+    api_key = migrate_api_key(d)
     return {
         "output_dir": output_dir,
         "dl_step": d.get("dl_step", True),
         "dl_pdf": d.get("dl_pdf", False),
         "lib_prefix": d.get("lib_prefix", ""),
         "lib_mode": d.get("lib_mode", "organised"),
-        "jlcpcb_api_key": d.get("jlcpcb_api_key", ""),
+        "jlcpcb_api_key": api_key,
     }
 
 
@@ -66,8 +68,7 @@ def run_import(pids, cfg):
         else:
             err = extra.get("error", "")
             _err(f"[{pid}] {step}: FAIL {err}".rstrip())
-            if step == "valid":
-                failures[pid] = err or "validation failed"
+            failures.setdefault(pid, []).append(f"{step}: {err or 'failed'}")
         if step == "pdf" or (step == "valid" and not ok):
             _finish(pid)
 
@@ -83,7 +84,9 @@ def run_import(pids, cfg):
     worker.wait(2000)
 
     if failures:
-        _err(f"{len(failures)} part(s) failed: {', '.join(sorted(failures))}")
+        for pid in sorted(failures):
+            _err(f"{pid}: {'; '.join(failures[pid])}")
+        _err(f"{len(failures)} part(s) failed")
         return 1
     return 0
 

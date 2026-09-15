@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from lib.fsutil import atomic_write_text
+
 CACHE_FILE = Path.home() / ".lcsc2kicad_cache.json"
+SECRET_FILE = Path.home() / ".lcsc2kicad_secret.json"
 CACHE_VERSION = 7
 MAX_RECENT = 10
 
@@ -20,7 +23,38 @@ def load_cache(path: Path | None = None) -> dict:
 
 def save_cache(data: dict, path: Path | None = None) -> None:
     p = path or CACHE_FILE
-    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    atomic_write_text(p, json.dumps(data, indent=2))
+
+def load_secret(path: Path | None = None) -> dict:
+    p = path or SECRET_FILE
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_secret(data: dict, path: Path | None = None) -> None:
+    p = path or SECRET_FILE
+    atomic_write_text(p, json.dumps(data, indent=2), mode=0o600)
+
+
+def migrate_api_key(cache_data: dict, secret_path: Path | None = None) -> str:
+    """Return the JLCPCB API key from the 0600-permission secret file.
+
+    Moves any legacy copy out of ``cache_data`` (the world-readable cache),
+    persisting both sides on first migration.
+    """
+    p = secret_path or SECRET_FILE
+    secret = load_secret(p)
+    legacy = cache_data.pop("jlcpcb_api_key", "")
+    if legacy and not secret.get("jlcpcb_api_key"):
+        secret["jlcpcb_api_key"] = legacy
+        save_secret(secret, p)
+        try:
+            save_cache(cache_data)
+        except Exception:
+            pass
+    return secret.get("jlcpcb_api_key") or legacy
 
 
 def migrate_col_visible(saved_vis: list, version: int, n_cols: int) -> list:

@@ -89,10 +89,10 @@ def _find_gui():
     return None
 
 
-def _find_python(gui: Path) -> str:
+def _find_python(gui: Path) -> "str | None":
     """
-    Return a Python interpreter path. Checks venvs by file existence only
-    (no subprocess calls).
+    Return a Python interpreter path, or None if no usable one is found.
+    Checks venvs by file existence only (no subprocess calls).
 
     On Windows, sys.executable is kicad.exe — not a Python interpreter.
     KiCad ships python.exe alongside kicad.exe, so we check that explicitly
@@ -117,8 +117,14 @@ def _find_python(gui: Path) -> str:
         if sys_py and "WindowsApps" not in (sys_py or ""):
             return sys_py
 
-    _log(f"falling back to sys.executable = {sys.executable}")
-    return sys.executable
+    if not _WIN:
+        # Outside KiCad on POSIX, sys.executable is a real Python interpreter.
+        _log(f"falling back to sys.executable = {sys.executable}")
+        return sys.executable
+
+    # On Windows sys.executable is kicad.exe — not a Python interpreter.
+    _log("no suitable Python interpreter found")
+    return None
 
 
 def _create_venv(
@@ -210,6 +216,17 @@ def _run_manager(mode="manager"):
 
         _log(f"Using gui: {gui}")
         python = _find_python(gui)
+        if python is None:
+            msg = (
+                "No suitable Python interpreter found.\n\n"
+                "Searched the venv locations, KiCad's bundled Python and PATH.\n\n"
+                "Install Python 3.13+ from https://www.python.org/downloads/,\n"
+                "or create a virtual environment at:\n"
+                f"  {gui.parent / 'venv'}\n\n"
+                f"Log: {_LOG_FILE}"
+            )
+            _notify("KiCad Component Manager — No Python", msg, wx)
+            return
         _log(f"Using python: {python}")
 
         _log("Testing required imports...")
@@ -218,7 +235,7 @@ def _run_manager(mode="manager"):
                 [
                     python,
                     "-c",
-                    "import wx, requests, lxml, bs4, KicadModTree; print('ok')",
+                    "import wx, requests, lxml, bs4, KicadModTree, easyeda2kicad; print('ok')",
                 ],
                 capture_output=True,
                 timeout=15,

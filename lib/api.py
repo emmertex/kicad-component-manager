@@ -10,7 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .jlc import helper
-from .jlc.jlcpcb_client import JLCPCBAPIClient, JLCPCBAPIError
+from .jlc.jlcpcb_client import JLCPCBAPIClient, get_jlcpcb_client
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +22,8 @@ class APIError(Exception):
 
 
 class JLCPCBAPIWrapper:
-    def __init__(self, api_key: Optional[str] = None):
-        self.client = JLCPCBAPIClient(api_key=api_key)
+    def __init__(self, api_key: Optional[str] = None, client=None):
+        self.client = client if client is not None else JLCPCBAPIClient(api_key=api_key)
 
     def get_component_data(self, pid: str) -> Optional[Dict[str, Any]]:
         """Get component data from JLCPCB API using the specialized client."""
@@ -65,8 +65,8 @@ class JLCPCBAPIWrapper:
                     out["price"] = f"${float(price_val):.4f}"
 
             return out
-        except (JLCPCBAPIError, Exception) as e:
-            logger.debug(f"JLCPCB API fetch failed for {pid}: {e}")
+        except Exception as e:
+            logger.warning(f"JLCPCB API fetch failed for {pid}: {e}")
             return None
 
 
@@ -205,7 +205,7 @@ def fetch_component_data(pid: str, api_key: Optional[str] = None) -> Dict[str, A
     """Unified function to fetch component data from all available sources with fallbacks."""
     # 1. Try JLCPCB API (always, but use key if provided)
     try:
-        client = JLCPCBAPIWrapper(api_key)
+        client = JLCPCBAPIWrapper(client=get_jlcpcb_client(api_key))
         data = client.get_component_data(pid)
         if data:
             logger.info(f"Fetched {pid} data from JLCPCB API")
