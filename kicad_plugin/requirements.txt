@@ -1,0 +1,4 @@
+# Installed by KiCad 10.99+ into the IPC plugin's virtual environment (see
+# plugin.json). Only the launcher runs there; the GUI's own dependencies are
+# in requirements-gui.txt (PCM) or the repo's requirements.txt.
+kicad-python>=0.8.0

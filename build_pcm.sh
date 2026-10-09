@@ -13,12 +13,16 @@ echo "Building PCM package v$VERSION ..."
 
 # ── Plugin launcher ────────────────────────────────────────────────────────── #
 mkdir -p "$PLUGIN_STAGING"
-cp "$REPO/kicad_plugin/__init__.py" "$PLUGIN_STAGING/"
+# __init__.py: SWIG ActionPlugin (KiCad <= 10.0); plugin.json + ipc_plugin.py:
+# IPC plugin (KiCad 10.99+), whose venv KiCad builds from requirements.txt.
+for f in __init__.py launcher.py ipc_plugin.py plugin.json requirements.txt; do
+    cp "$REPO/kicad_plugin/$f" "$PLUGIN_STAGING/"
+done
 [ -f "$REPO/kicad_plugin/icon.png" ] && cp "$REPO/kicad_plugin/icon.png" "$PLUGIN_STAGING/"
 
 # ── GUI and backend ────────────────────────────────────────────────────────── #
 cp "$REPO/manager.py" "$PLUGIN_STAGING/"
-cp "$REPO/requirements.txt" "$PLUGIN_STAGING/"
+cp "$REPO/requirements.txt" "$PLUGIN_STAGING/requirements-gui.txt"
 
 # Copy gui and lib folders, excluding cache and junk files
 for dir in gui lib; do

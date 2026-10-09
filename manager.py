@@ -44,7 +44,30 @@ def _parse_args(argv):
         metavar="FILE",
         help="Open in BOM mode using parts from a PCB scan (JSON file)",
     )
+    parser.add_argument(
+        "--pcb",
+        dest="pcb",
+        metavar="FILE",
+        help="Open in BOM mode, reading parts from a saved .kicad_pcb file",
+    )
     return parser.parse_args(argv)
+
+
+def _pcb_to_bom_file(pcb_file: str) -> str | None:
+    """Write the board's footprints to a temp JSON file in the --bom format."""
+    import json
+    import tempfile
+
+    from lib.kicad_pcb import pcb_bom_payload
+
+    try:
+        payload = pcb_bom_payload(pcb_file)
+    except Exception as e:
+        logging.error(f"Could not read {pcb_file}: {e}")
+        return None
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(payload, f)
+    return f.name
 
 
 def main():
@@ -62,8 +85,11 @@ def main():
     from gui.widgets import MainFrame
 
     logging.basicConfig(level=logging.INFO)
+    bom_file = args.bom
+    if args.pcb:
+        bom_file = _pcb_to_bom_file(args.pcb)
     app = wx.App(False)
-    win = MainFrame(bom_file=args.bom)
+    win = MainFrame(bom_file=bom_file)
     win.Show()
     app.MainLoop()
 

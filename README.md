@@ -115,7 +115,7 @@ Python dependencies (wxPython, requests, etc.) are handled automatically on firs
 git clone https://github.com/emmertex/kicad-component-manager
 cd kicad-component-manager
 ./run.sh            # set up venv and dependencies
-./install_plugin.sh # symlink kicad_plugin/ into KiCad's scripting/plugins/
+./install_plugin.sh # symlink kicad_plugin/ into each KiCad version's plugin folder
 ```
 
 Restart KiCad
@@ -125,7 +125,20 @@ To uninstall, delete the symlink:
 
 ```bash
 rm ~/.local/share/kicad/10.0/scripting/plugins/lcsc2kicad
+rm ~/.local/share/kicad/10.99/plugins/lcsc2kicad
 ```
+
+### KiCad 10.99 (nightly)
+
+KiCad 10.99 removed the SWIG `pcbnew` Python API, so the plugin runs there as an
+IPC API plugin (`kicad_plugin/plugin.json`):
+
+1. **Preferences → Plugins**: tick **Enable KiCad API** and set a Python interpreter.
+2. On first load KiCad builds the plugin's own environment (it only needs
+   `kicad-python`); the GUI still runs from the venv described above.
+3. Use the **KiCad Component Manager** toolbar button in the PCB editor, schematic
+   editor or project manager. From the PCB editor it opens the BOM tab for the
+   open board, read from the **saved** `.kicad_pcb` file, so save first.
 
 ---
 
