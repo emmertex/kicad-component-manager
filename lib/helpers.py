@@ -255,29 +255,38 @@ def _property_value_re(prop_name: str) -> re.Pattern:
 
 def _iter_top_level_symbols(content: str):
     """Yield (name, bracket_pos, end_pos) for each top-level symbol in a library."""
+    # Uses real paren depth, not indentation: KiCad-formatted files indent
+    # sub-units with tabs ("\t\t" is as wide as the two-space top level), which
+    # made sub-units look like top-level symbols and corrupted rewrites.
     lib_end = _sym_lib_close(content)
-    inner = content[:lib_end]
-    decl_re = re.compile(
-        r'^([ \t]*)\(symbol "(' + KICAD_QUOTED_VALUE_RE + r')"',
-        re.MULTILINE,
-    )
-    matches = list(decl_re.finditer(inner))
-    if not matches:
-        return
-    min_indent = min(len(m.group(1)) for m in matches)
-    top_matches = [m for m in matches if len(m.group(1)) == min_indent]
-    for i, m in enumerate(top_matches):
-        bracket_pos = m.start() + len(m.group(1))
-        end_idx = _find_block_end(content, bracket_pos)
-        if end_idx == -1:
-            end_pos = (
-                top_matches[i + 1].start() + len(top_matches[i + 1].group(1))
-                if i + 1 < len(top_matches)
-                else lib_end
-            )
-        else:
-            end_pos = end_idx + 1
-        yield m.group(2), bracket_pos, end_pos
+    name_re = re.compile(r'\(symbol "(' + KICAD_QUOTED_VALUE_RE + r')"')
+    depth = 0
+    in_str = esc = False
+    i = 0
+    while i < lib_end:
+        c = content[i]
+        if esc:
+            esc = False
+        elif in_str:
+            if c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "(":
+            if depth == 1:
+                m = name_re.match(content, i)
+                if m:
+                    end_idx = _find_block_end(content, i)
+                    end_pos = end_idx + 1 if end_idx != -1 else lib_end
+                    yield m.group(1), i, end_pos
+                    i = end_pos
+                    continue
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        i += 1
 
 
 def sync_libraries(output_dir: str, prefix: str = "") -> tuple:
@@ -602,6 +611,9 @@ def _update_symbol_property(
             logging.warning(f"Symbol block for {pid} not found in {sym_file}")
             return False
         if new_content != content:
+            if _sym_lib_is_valid(content) and not _sym_lib_is_valid(new_content):
+                logging.warning(f"Not updating {prop_names} for {pid}: would corrupt {sym_file.name}")
+                return False
             atomic_write_text(sym_file, new_content)
             logging.info(f"Updated {prop_names} for {pid} in {sym_file.name}")
         return True
@@ -681,13 +693,91 @@ def upsert_symbol(lib_path: str, content: str) -> None:
         current = p.read_text(encoding="utf-8", errors="replace")
     else:
         current = EMPTY_SYM_LIB
+    if not _sym_lib_is_valid(current):
+        repaired = repair_symbol_lib(current)
+        if not _sym_lib_is_valid(repaired):
+            raise ValueError(f"{p.name} is malformed and could not be repaired")
+        logging.warning(f"Repaired malformed symbol library {p.name}")
+        current = repaired
     current = _remove_top_symbol(current, name)
     close = _sym_lib_close(current)
     prefix = current[:close]
     if not prefix.endswith("\n"):
         prefix += "\n"
     new = prefix + content.strip("\n") + "\n" + current[close:]
+    if not _sym_lib_is_valid(new):
+        raise ValueError(f"writing {name} would corrupt {p.name}; file left unchanged")
     atomic_write_text(p, new)
+
+
+def _sym_lib_is_valid(content: str) -> bool:
+    """True if content is one balanced (kicad_symbol_lib ...) node and nothing else."""
+    from lib.kicad_validate import validate_balanced_parens
+
+    try:
+        validate_balanced_parens(content)
+    except Exception:
+        return False
+    close = _sym_lib_close(content)
+    return close < len(content) and not content[close + 1 :].strip()
+
+
+_SUBUNIT_RE = re.compile(r"^(.*)_\d+_\d+$")
+
+
+def repair_symbol_lib(content: str) -> str:
+    """Rebuild a .kicad_sym whose symbols were knocked out of nesting.
+
+    Old overwrite bugs left files where a parent symbol closes early, its
+    sub-units ("NAME_0_1") float at top level (sometimes duplicated), and stray
+    ")" / "(embedded_fonts no)" fragments sit between symbols. This scans every
+    block at the outer level, keeps real top-level symbols, re-nests orphaned
+    sub-units into their parent (dropping exact duplicates), and discards the
+    stray fragments.
+    """
+    head_end = content.find("(symbol")
+    if head_end < 0:
+        return content
+    header = content[:head_end].rstrip()
+    # Order-preserving: name -> [parent_text, [subunit_texts]]
+    syms: dict[str, list] = {}
+    orphans: list[tuple[str, str]] = []
+    i = head_end
+    n = len(content)
+    while i < n:
+        j = content.find("(", i)
+        if j < 0:
+            break
+        end = _find_block_end(content, j)
+        if end < 0:
+            break
+        block = content[j : end + 1]
+        m = re.match(r'\(symbol "(' + KICAD_QUOTED_VALUE_RE + r')"', block)
+        if m:
+            name = m.group(1)
+            sm = _SUBUNIT_RE.match(name)
+            if sm and "(property" not in block:
+                orphans.append((sm.group(1), block))
+            elif name not in syms:
+                syms[name] = [block, []]
+        i = end + 1
+    for parent, block in orphans:
+        if parent not in syms:
+            continue
+        ptext, subs = syms[parent]
+        norm = re.sub(r"\s+", " ", block)
+        if norm in re.sub(r"\s+", " ", ptext) or any(
+            norm == re.sub(r"\s+", " ", s) for s in subs
+        ):
+            continue
+        subs.append(block)
+    out = [header]
+    for ptext, subs in syms.values():
+        if subs:
+            close = ptext.rfind(")")
+            ptext = ptext[:close].rstrip() + "\n" + "\n".join(subs) + "\n" + ptext[close:]
+        out.append("  " + ptext)
+    return "\n".join(out) + "\n)\n"
 
 
 def _parse_sym_file(sym_file: Path):

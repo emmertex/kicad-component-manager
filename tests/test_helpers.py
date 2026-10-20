@@ -182,3 +182,38 @@ def test_sync_libraries_multi_unit_symbol_stays_valid(tmp_path):
     validate_symbol_library(sym_file)
     comp = tmp_path / "symbol" / f"{CONSOLIDATED_LIB}.kicad_sym"
     validate_symbol_library(comp)
+
+
+def test_upsert_symbol_repairs_orphaned_subunits(tmp_path):
+    """A lib with a prematurely-closed parent, orphan/duplicate sub-units and a
+    stray ')' must be repaired, not spliced into the wrong place."""
+    from lib.helpers import _sym_lib_is_valid, upsert_symbol
+
+    broken = (
+        "(kicad_symbol_lib (version 20210201) (generator x)\n"
+        '  (symbol "A"\n    (property "Reference" "U")\n  )(symbol "A_0_1"\n'
+        '    (rectangle (start 0 0) (end 1 1)))\n'
+        '  (symbol "A_0_1"\n    (rectangle (start 0 0) (end 1 1)))\n'
+        "  (embedded_fonts no)\n  )\n)\n"
+    )
+    p = tmp_path / "t.kicad_sym"
+    p.write_text(broken)
+    upsert_symbol(str(p), '(symbol "B"\n  (property "Reference" "U")\n)')
+    out = p.read_text()
+    assert _sym_lib_is_valid(out)
+    assert out.count('(symbol "A_0_1"') == 1
+    assert '(symbol "B"' in out
+
+
+def test_iter_top_level_symbols_tab_indented_subunits():
+    """KiCad-formatted sub-units indented with tabs must not count as top level."""
+    from lib.helpers import _iter_top_level_symbols
+
+    content = (
+        "(kicad_symbol_lib (version 1)\n"
+        '  (symbol "A"\n    (property "Reference" "U")\n  )\n'
+        '  (symbol "B"\n\t\t(property "Reference" "U")\n'
+        '\t\t(symbol "B_0_1"\n\t\t\t(rectangle (start 0 0) (end 1 1))\n\t\t)\n\t)\n'
+        ")\n"
+    )
+    assert [n for n, *_ in _iter_top_level_symbols(content)] == ["A", "B"]

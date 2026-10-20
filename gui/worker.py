@@ -20,6 +20,8 @@ from lib.categories import resolve_category
 from lib.helpers import (
     PDF_MIN_BYTES,
     _check_existing,
+    _find_sym_file,
+    _parse_sym_file,
     _safe_component,
     _update_symbol_property,
     _update_symbol_datasheet,
@@ -124,21 +126,40 @@ class Worker:
             log(
                 f"Footprint for {pid} already in library, skipping (use Replace to force)"
             )
+            # Report the existing files so the GUI shows them as done.
+            self._emit(self.on_step_done, pid, "footprint", True, {"fp_name": c.get("fp_name", "")})
+            self._emit(self.on_step_done, pid, "step", bool(c.get("step_ok")), {})
         else:
             self._do_footprint(pid, c, cfg)
 
         if not overwrite and c.get("sym_ok"):
             log(f"Symbol for {pid} already in library, skipping (use Replace to force)")
+            self._emit(self.on_step_done, pid, "symbol", True, self._existing_sym_info(pid, cfg))
         else:
             self._do_symbol(pid, c, cfg)
 
         if cfg["dl_pdf"] and (overwrite or not c.get("pdf_ok")):
             self._do_pdf(pid, c, cfg)
+        elif c.get("pdf_ok"):
+            # Already downloaded: that's a success, not a skip.
+            self._emit(self.on_step_done, pid, "pdf", True, {})
         else:
-            # PDF step skipped (disabled, or already in library): still emit a
-            # done event so CLI callers waiting on the pdf step can finish.
+            # PDF download disabled: still emit a done event so CLI callers
+            # waiting on the pdf step can finish.
             url = f"https://www.lcsc.com/product-detail/{pid}.html"
             self._emit(self.on_step_done, pid, "pdf", True, {"skipped": True, "url": url})
+
+    def _existing_sym_info(self, pid, cfg):
+        """Value/description/etc. of pid's symbol already in the library."""
+        try:
+            sf = _find_sym_file(pid, Path(cfg["output_dir"]) / "symbol")
+            for e in _parse_sym_file(sf) if sf else []:
+                if e.get("lcsc") == pid:
+                    keys = ("value", "description", "package", "mfr", "category", "attributes")
+                    return {k: e.get(k, "") for k in keys}
+        except Exception:
+            pass
+        return {}
 
     def _do_retry(self, pid, step, cfg):
         c = self._cache.setdefault(pid, {})
